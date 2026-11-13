@@ -8,6 +8,9 @@ import (
 	"px/internal/traffic"
 )
 
+// homeNodeCells is the node name width limit on the Home page.
+const homeNodeCells = 24
+
 // Home is the first page: kernel status over two traffic charts.
 type Home struct {
 	app     *App
@@ -82,23 +85,23 @@ func (h *Home) View() {
 
 	title := "Home"
 	titleX := max((w-displayWidth(title))/2, 1)
-	fmt.Fprintf(&buf, "\x1b[1;1H\x1b[K\x1b[1;%dH\x1b[1m%s\x1b[0m", titleX, title)
+	fmt.Fprintf(&buf, "\x1b[1;1H\x1b[K\x1b[1;%dH%s%s\x1b[0m", titleX, colHeading, title)
 
 	if w < 40 || hgt < 12 {
-		msg := "终端过小，无法显示"
+		msg := t(txtTooSmallDisplay)
 		x := max((w-displayWidth(msg))/2, 1)
 		fmt.Fprintf(&buf, "\x1b[%d;%dH\x1b[90m%s\x1b[0m", max(hgt/2, 1), x, msg)
 		print(buf.String())
 		return
 	}
 
-	state := "已停止"
+	state := t(txtStopped)
 	if h.status.Running {
-		state = "运行中"
+		state = t(txtRunning)
 	}
-	tun := "关"
+	tun := t(txtOff)
 	if h.status.Tun {
-		tun = "开"
+		tun = t(txtOn)
 	}
 	active := h.status.Active
 	if active == "" {
@@ -114,18 +117,19 @@ func (h *Home) View() {
 			traffic = fmtBytes(uint64(p.Upload+p.Download)) + " / " + fmtBytes(uint64(p.Total))
 		}
 	}
-	drawInfoLine(&buf, 3, w, []infoPair{{"内核", state}, {"TUN", tun}, {"端口", itoa(h.status.Port)}})
-	drawInfoLine(&buf, 4, w, []infoPair{{"配置", active}})
-	drawInfoLine(&buf, 5, w, []infoPair{{"节点", node}})
-	drawInfoLine(&buf, 6, w, []infoPair{{"流量", traffic}})
+	active = cutName(active, profileNameCells)
+	node = cutName(node, homeNodeCells)
+	pad := max(displayWidth(t(txtKernel)), displayWidth("TUN"), displayWidth(t(txtPort)), displayWidth(t(txtProfile)), displayWidth(t(txtNode)), displayWidth(t(txtTrafficLabel)))
+	drawInfoLine(&buf, 3, w, []infoPair{{t(txtKernel), state}, {"TUN", tun}, {t(txtPort), itoa(h.status.Port)}}, pad)
+	drawInfoLine(&buf, 5, w, []infoPair{{t(txtProfile), active}, {t(txtNode), node}, {t(txtTrafficLabel), traffic}}, pad)
 
 	boxW := (w - 6) / 2
-	boxTop := 8
+	boxTop := 7
 	boxH := hgt - boxTop
-	h.drawPanel(&buf, 2, boxTop, boxW, boxH, "上传", h.txSeries(), h.traffic.TxTotal)
-	h.drawPanel(&buf, 3+boxW+1, boxTop, boxW, boxH, "下载", h.rxSeries(), h.traffic.RxTotal)
+	h.drawPanel(&buf, 2, boxTop, boxW, boxH, t(txtUpload), h.txSeries(), h.traffic.TxTotal)
+	h.drawPanel(&buf, 3+boxW+1, boxTop, boxW, boxH, t(txtDownload), h.rxSeries(), h.traffic.RxTotal)
 
-	hint := "space 开启  tab 换页  ? 帮助"
+	hint := t(txtHintHome)
 	hintX := max((w-displayWidth(hint))/2, 1)
 	fmt.Fprintf(&buf, "\x1b[%d;1H\x1b[K\x1b[%d;%dH\x1b[90m%s\x1b[0m", hgt, hgt, hintX, hint)
 
@@ -140,13 +144,13 @@ type infoPair struct {
 
 // drawInfoLine renders label value pairs centered on one row, labels in
 // green and values in bold.
-func drawInfoLine(buf *strings.Builder, y, w int, pairs []infoPair) {
+func drawInfoLine(buf *strings.Builder, y, w int, pairs []infoPair, pad int) {
 	var plain strings.Builder
 	for i, p := range pairs {
 		if i > 0 {
 			plain.WriteString("    ")
 		}
-		plain.WriteString(fit(p.label, 4))
+		plain.WriteString(fit(p.label, pad))
 		plain.WriteString(" ")
 		plain.WriteString(p.value)
 	}
@@ -156,7 +160,7 @@ func drawInfoLine(buf *strings.Builder, y, w int, pairs []infoPair) {
 		if i > 0 {
 			buf.WriteString("    ")
 		}
-		fmt.Fprintf(buf, "\x1b[32m%s\x1b[0m \x1b[1m%s\x1b[0m", fit(p.label, 4), p.value)
+		fmt.Fprintf(buf, "%s%s\x1b[0m %s%s\x1b[0m", colGreen, fit(p.label, pad), colTextBold, p.value)
 	}
 }
 
@@ -170,7 +174,7 @@ func (h *Home) drawPanel(buf *strings.Builder, x, top, width, height int, label 
 	if len(data) > 0 {
 		current = data[len(data)-1]
 	}
-	title := " " + label + " " + fmtBytes(uint64(current)) + "/s  共 " + fmtBytes(uint64(total)) + " "
+	title := fmt.Sprintf(t(txtPanelTitle), label, fmtBytes(uint64(current)), fmtBytes(uint64(total)))
 	title = truncateToWidthFromStart(title, max(inner-1, 0))
 	fill := max(inner-1-displayWidth(title), 0)
 	fmt.Fprintf(buf, "\x1b[%d;%dH\x1b[90m┌─\x1b[0m\x1b[1m%s%s\x1b[0m\x1b[90m%s┐\x1b[0m", top, x, chartColor, title, strings.Repeat("─", fill))

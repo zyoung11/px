@@ -3,6 +3,7 @@ package tui
 import (
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/mattn/go-runewidth"
 )
@@ -53,16 +54,77 @@ func displayWidth(text string) int {
 	return runewidth.StringWidth(text)
 }
 
-// truncateWithEllipsis shortens text to the given display width and marks
-// the cut with an ellipsis at the tail.
-func truncateWithEllipsis(text string, width int) string {
+// cutName shortens a name past the limit and marks the cut with an
+// ellipsis.
+func cutName(s string, limit int) string {
+	if displayWidth(s) <= limit {
+		return s
+	}
+	return truncateToWidthFromStart(s, max(limit-3, 0)) + "..."
+}
+
+// visibleWidth returns the display width of styled text with ANSI
+// sequences ignored.
+func visibleWidth(s string) int {
+	w := 0
+	for i := 0; i < len(s); {
+		if s[i] == 0x1b {
+			i = ansiEnd(s, i)
+			continue
+		}
+		r, size := utf8.DecodeRuneInString(s[i:])
+		w += runewidth.RuneWidth(r)
+		i += size
+	}
+	return w
+}
+
+// truncateStyled cuts styled text to the visible width, marks the cut
+// with an ellipsis and closes any open color.
+func truncateStyled(s string, width int) string {
 	if width <= 0 {
 		return ""
 	}
-	if runewidth.StringWidth(text) <= width {
-		return text
+	if visibleWidth(s) <= width {
+		return s
 	}
-	keep := max(width-1, 0)
-	cut := truncateToWidthFromStart(text, keep)
-	return cut + "…"
+	var b strings.Builder
+	used := 0
+	cut := false
+	for i := 0; i < len(s) && !cut; {
+		if s[i] == 0x1b {
+			end := ansiEnd(s, i)
+			b.WriteString(s[i:end])
+			i = end
+			continue
+		}
+		r, size := utf8.DecodeRuneInString(s[i:])
+		rw := runewidth.RuneWidth(r)
+		if used+rw > width-3 {
+			cut = true
+			continue
+		}
+		b.WriteRune(r)
+		used += rw
+		i += size
+	}
+	b.WriteString("\x1b[0m...")
+	return b.String()
+}
+
+// ansiEnd returns the index just past the ANSI escape sequence
+// starting at i. CSI sequences keep their parameter bytes inside the
+// sequence so a cut never leaks them as text.
+func ansiEnd(s string, i int) int {
+	j := i + 1
+	if j < len(s) && s[j] == '[' {
+		j++
+		for j < len(s) && s[j] >= 0x20 && s[j] <= 0x3f {
+			j++
+		}
+	}
+	if j < len(s) {
+		j++
+	}
+	return j
 }

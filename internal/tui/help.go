@@ -292,7 +292,7 @@ func renderHelpLine(y, x, colWidth, keysWidth int, line helpLine) {
 	if line.title != "" {
 		heading := truncateToWidthFromStart(line.title, colWidth-1)
 		dashes := max(colWidth-displayWidth(heading)-2, 0)
-		fmt.Printf("\x1b[%d;%dH\x1b[1m%s\x1b[0m \x1b[90m%s\x1b[0m", y, x, heading, strings.Repeat("─", dashes))
+		fmt.Printf("\x1b[%d;%dH%s%s\x1b[0m \x1b[90m%s\x1b[0m", y, x, colHeading, heading, strings.Repeat("─", dashes))
 		return
 	}
 	keys := truncateToWidthFromStart(line.row.keys, keysWidth)
@@ -301,9 +301,9 @@ func renderHelpLine(y, x, colWidth, keysWidth int, line helpLine) {
 		nameWidth = max(nameWidth-1, 1)
 	}
 	name := truncateToWidthFromStart(line.row.name, nameWidth)
-	fmt.Printf("\x1b[%d;%dH\x1b[32m%s\x1b[0m", y, x, keys)
+	fmt.Printf("\x1b[%d;%dH%s%s\x1b[0m", y, x, colGreen, keys)
 	if line.row.input {
-		name += "\x1b[32m*\x1b[0m"
+		name += colGreen + "*\x1b[0m"
 	}
 	fmt.Printf("\x1b[%d;%dH%s", y, x+keysWidth+2, name)
 }
@@ -320,10 +320,10 @@ func (a *App) drawHelpPage() {
 
 	fmt.Print("\x1b[2J\x1b[3J\x1b[H")
 
-	zh := true
-	title := "快捷键"
+	zh := lang == 1
+	title := t(txtHelpTitle)
 	titleX := max((w-displayWidth(title))/2, 0) + 1
-	fmt.Printf("\x1b[1;%dH\x1b[1m%s\x1b[0m", titleX, title)
+	fmt.Printf("\x1b[1;%dH%s%s\x1b[0m", titleX, colHeading, title)
 
 	blocks := collectHelpBlocks(zh)
 	contentRows := max(h-4, 1)
@@ -363,18 +363,18 @@ func (a *App) drawHelpPage() {
 			x += widths[col] + helpColumnGap
 		}
 	} else {
-		msg := "终端过小，无法显示快捷键"
+		msg := t(txtHelpTooSmall)
 		msg = truncateToWidthFromStart(msg, max(w-1, 1))
 		x := max((w-displayWidth(msg))/2, 0) + 1
 		fmt.Printf("\x1b[%d;%dH\x1b[90m%s\x1b[0m", max(h/2, 1), x, msg)
 	}
 
-	legend := "* 仅输入时有效"
-	hint := "按 " + strings.Join(keymap.Global.Quit, ", ") + " 返回"
+	legend := t(txtHelpLegend)
+	hint := fmt.Sprintf(t(txtHelpBack), strings.Join(keymap.Global.Quit, ", "))
 	hintX := max((w-displayWidth(hint))/2, 0) + 1
 	if columns != nil {
 		legendX := max((w-displayWidth(legend))/2, 0) + 1
-		fmt.Printf("\x1b[%d;%dH\x1b[32m*\x1b[0m\x1b[90m%s\x1b[0m", h-1, legendX, legend[1:])
+		fmt.Printf("\x1b[%d;%dH%s*\x1b[0m\x1b[90m%s\x1b[0m", h-1, legendX, colGreen, legend[1:])
 	}
 	fmt.Printf("\x1b[%d;%dH\x1b[90m%s\x1b[0m", h, hintX, hint)
 }
@@ -393,8 +393,8 @@ func buildQuitKeysLine(width int, confirmKey, cancelKey, suffixConfirm, suffixCa
 	pad := max((width-total)/2, 0)
 	tail := max(width-total-pad, 0)
 	return strings.Repeat(" ", pad) +
-		"\x1b[32m" + confirmKey + "\x1b[0m" + suffixConfirm + strings.Repeat(" ", gap) +
-		"\x1b[32m" + cancelKey + "\x1b[0m" + suffixCancel + strings.Repeat(" ", tail)
+		colGreen + confirmKey + "\x1b[0m" + suffixConfirm + strings.Repeat(" ", gap) +
+		colGreen + cancelKey + "\x1b[0m" + suffixCancel + strings.Repeat(" ", tail)
 }
 
 // drawConfirmBox renders the modal confirmation box centered over the
@@ -423,7 +423,7 @@ func (a *App) drawConfirmBox(msg, suffixConfirm, suffixCancel string) {
 	msgWidth := displayWidth(msg)
 	msgPad := max((inner-msgWidth)/2, 0)
 	msgLine := strings.Repeat(" ", msgPad) + msg + strings.Repeat(" ", max(inner-msgWidth-msgPad, 0))
-	fmt.Printf("\x1b[%d;%dH\x1b[90m│\x1b[0m\x1b[1m%s\x1b[0m\x1b[90m│\x1b[0m", top+1, left, msgLine)
+	fmt.Printf("\x1b[%d;%dH\x1b[90m│\x1b[0m%s%s\x1b[0m\x1b[90m│\x1b[0m", top+1, left, colTextBold, msgLine)
 
 	fmt.Printf("\x1b[%d;%dH\x1b[90m│%s│\x1b[0m", top+2, left, strings.Repeat(" ", inner))
 

@@ -13,11 +13,11 @@ const unitName = "px.service"
 
 // Install registers and starts the systemd system service for the daemon.
 func Install(exe, configPath string) error {
-	if _, err := os.Stat("/run/systemd/system"); err != nil {
-		return fmt.Errorf("systemd is not available, run px run with your init instead")
-	}
 	if os.Geteuid() != 0 {
 		return fmt.Errorf("install requires root, run with sudo")
+	}
+	if _, err := os.Stat("/run/systemd/system"); err != nil {
+		return fmt.Errorf("systemd is not available, run px run with your init instead")
 	}
 	unit := unitText(exe, configPath)
 	unitPath := filepath.Join("/etc/systemd/system", unitName)

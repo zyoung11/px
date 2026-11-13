@@ -3,6 +3,8 @@ package tui
 import (
 	"sort"
 	"strings"
+
+	"px/internal/ipc"
 )
 
 // Node sort modes. The region order is the zero value so a state file
@@ -136,20 +138,20 @@ func borderedCode(lower string) string {
 // sortNodes returns the node list in the requested order. DIRECT always
 // leads, the region order groups nodes by region in order of first
 // appearance, and unknown regions end the list.
-func sortNodes(nodes []string, mode int) []string {
+func sortNodes(nodes []ipc.NodeInfo, mode int) []ipc.NodeInfo {
 	if mode != sortRegion {
 		return nodes
 	}
-	out := make([]string, 0, len(nodes))
-	tail := []string{}
-	buckets := map[string][]string{}
+	out := make([]ipc.NodeInfo, 0, len(nodes))
+	tail := []ipc.NodeInfo{}
+	buckets := map[string][]ipc.NodeInfo{}
 	order := []string{}
 	for _, node := range nodes {
-		if node == "DIRECT" {
+		if node.Name == "DIRECT" {
 			out = append(out, node)
 			continue
 		}
-		code := regionOf(node)
+		code := regionOf(node.Name)
 		if code == "" {
 			tail = append(tail, node)
 			continue
@@ -168,7 +170,7 @@ func sortNodes(nodes []string, mode int) []string {
 // sortModeName returns the display name of a sort mode.
 func sortModeName(mode int) string {
 	if mode == sortRegion {
-		return "按地区"
+		return t(txtSortRegion)
 	}
-	return "默认"
+	return t(txtSortDefault)
 }

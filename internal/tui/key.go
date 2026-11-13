@@ -60,10 +60,10 @@ func (r *keyReader) next() (rune, bool) {
 		return '\t', true
 	case b == 0x7f || b == 0x08:
 		return KeyBackspace, true
-	case b == 0x03:
-		return rune(b), true
-	case b < 0x20:
+	case b == 0:
 		return r.next()
+	case b < 0x20:
+		return modCtrl | rune('a'+b-1), true
 	case b < 0x80:
 		return rune(b), true
 	}
@@ -91,7 +91,13 @@ func (r *keyReader) escapeSequence() (rune, bool) {
 		return 0, false
 	}
 	if b != '[' {
-		return 0x1b, true
+		if b == 0x1b {
+			return 0x1b, true
+		}
+		if b > 0 && b < 0x20 {
+			return modAlt | modCtrl | rune('a'+b-1), true
+		}
+		return modAlt | rune(b), true
 	}
 	for {
 		c, ok := r.readByte()

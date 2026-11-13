@@ -47,6 +47,9 @@ var commands = []command{
 		usage:   "px run [--config <path>]",
 		options: [][2]string{configOption},
 		run: func(configPath string) int {
+			if !requireRoot() {
+				return 1
+			}
 			if err := daemon.Run(configPath); err != nil {
 				logx.Error("%v", err)
 				return 1
@@ -82,7 +85,7 @@ func dispatch(args []string) int {
 	case "-h", "--help", "help":
 		printUsage()
 		return 0
-	case "--version":
+	case "-v", "-V", "--version":
 		fmt.Printf("%spx%s %s%s%s\n", colorBlue, colorReset, colorGreen, version, colorReset)
 		return 0
 	}
@@ -145,6 +148,16 @@ func defaultConfigPath() string {
 	return filepath.Join(dir, "px", "config.json")
 }
 
+// requireRoot reports an error and returns false unless the process runs
+// as root, so privileged commands fail before any work starts.
+func requireRoot() bool {
+	if os.Geteuid() != 0 {
+		logx.Error("root is required, run with sudo")
+		return false
+	}
+	return true
+}
+
 func runTUI() int {
 	if err := tui.Run(); err != nil {
 		logx.Error("%v", err)
@@ -155,6 +168,9 @@ func runTUI() int {
 }
 
 func runInstall(configPath string) int {
+	if !requireRoot() {
+		return 1
+	}
 	exe, err := os.Executable()
 	if err != nil {
 		logx.Error("%v", err)
@@ -180,6 +196,9 @@ func runInstall(configPath string) int {
 }
 
 func runUninstall(configPath string) int {
+	if !requireRoot() {
+		return 1
+	}
 	logx.Info("removing systemd service")
 	if err := service.Uninstall(); err != nil {
 		logx.Error("%v", err)
@@ -211,6 +230,21 @@ func printUsage() {
 	}
 	for _, c := range commands {
 		fmt.Printf("  %s%s%s %s\n", colorGreen, c.name+strings.Repeat(" ", width-len(c.name)), colorReset, c.summary)
+	}
+	flags := [][2]string{
+		{"-h, --help", "Show this help page"},
+		{"-v, -V, --version", "Show the version"},
+	}
+	fmt.Printf("\n%sOPTIONS:%s\n", colorBold+colorMauve, colorReset)
+	flagWidth := 0
+	for _, f := range flags {
+		if len(f[0]) > flagWidth {
+			flagWidth = len(f[0])
+		}
+	}
+	for _, f := range flags {
+		fmt.Printf("  %s%s%s %s\n", colorYellow,
+			f[0]+strings.Repeat(" ", flagWidth-len(f[0])), colorReset, f[1])
 	}
 	fmt.Println()
 }

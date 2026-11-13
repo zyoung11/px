@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net"
 	"os"
+
+	"px/internal/state"
 )
 
 // SocketPath is the fixed control socket location under /tmp.
@@ -53,11 +55,17 @@ type ProfileInfo struct {
 	Total     int64  `json:"total"`
 }
 
+// NodeInfo is one node of a profile with its protocol type.
+type NodeInfo struct {
+	Name string `json:"name"`
+	Type string `json:"type"`
+}
+
 // NodesInfo is the resolved node list of one profile together with the
 // currently selected node.
 type NodesInfo struct {
-	Nodes    []string `json:"nodes"`
-	Selected string   `json:"selected"`
+	Nodes    []NodeInfo `json:"nodes"`
+	Selected string     `json:"selected"`
 }
 
 // GroupInfo is one proxy group in a status snapshot.
@@ -69,16 +77,18 @@ type GroupInfo struct {
 
 // Status is the full state snapshot the daemon returns to the TUI.
 type Status struct {
-	Running  bool          `json:"running"`
-	Tun      bool          `json:"tun"`
-	Port     int           `json:"port"`
-	Enabled  bool          `json:"enabled"`
-	Active   string        `json:"active"`
-	DelayURL string        `json:"delay_url"`
-	Sort     int           `json:"sort"`
-	Page     int           `json:"page"`
-	Profiles []ProfileInfo `json:"profiles"`
-	Groups   []GroupInfo   `json:"groups"`
+	Running  bool                `json:"running"`
+	Tun      bool                `json:"tun"`
+	Port     int                 `json:"port"`
+	Enabled  bool                `json:"enabled"`
+	Active   string              `json:"active"`
+	DelayURL string              `json:"delay_url"`
+	Lang     string              `json:"lang"`
+	Sort     int                 `json:"sort"`
+	Page     int                 `json:"page"`
+	Keys     *state.KeyOverrides `json:"keys"`
+	Profiles []ProfileInfo       `json:"profiles"`
+	Groups   []GroupInfo         `json:"groups"`
 }
 
 // Handler answers one request and may report interim progress. The

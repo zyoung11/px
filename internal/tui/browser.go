@@ -106,12 +106,12 @@ func (b *Browser) HandleKey(key rune) {
 		b.sortMode = 1 - b.sortMode
 		b.clamp()
 		b.app.saveUI()
-		b.setMessage("排序 "+sortModeName(b.sortMode), false)
+		b.setMessage(t(txtSort)+sortModeName(b.sortMode), false)
 		b.View()
 	case IsKey(key, keymap.Library.DeleteProfile):
 		if p, ok := b.currentProfile(); ok {
 			b.confirm = p.Name
-			b.app.showConfirm("确定要删除 "+p.Name+" 吗？", " 删除", " 取消")
+			b.app.showConfirm(fmt.Sprintf(t(txtDeleteAsk), p.Name), t(txtBtnDelete), t(txtBtnCancel))
 		}
 	}
 }
@@ -125,7 +125,7 @@ func (b *Browser) handleConfirmKey(key rune) {
 		if err := command(ipc.CmdDelete, map[string]string{"name": name}); err != nil {
 			b.setMessage(err.Error(), true)
 		} else {
-			b.setMessage("已删除 "+name, false)
+			b.setMessage(t(txtDeleted)+name, false)
 			b.Init()
 		}
 	}
@@ -150,7 +150,7 @@ func (b *Browser) handleInputKey(key rune) {
 		if err != nil {
 			b.setMessage(err.Error(), true)
 		} else {
-			b.setMessage("已添加", false)
+			b.setMessage(t(txtAdded), false)
 			b.Init()
 		}
 		b.View()
@@ -175,7 +175,7 @@ func (b *Browser) handleInputKey(key rune) {
 			b.input.pos++
 		}
 		b.drawFooterOnly()
-	case key >= 0x20 && key != 0x7f:
+	case key >= 0x20 && key != 0x7f && key < modCtrl:
 		b.input.value = append(b.input.value[:b.input.pos], append([]rune{key}, b.input.value[b.input.pos:]...)...)
 		b.input.pos++
 		b.drawFooterOnly()
@@ -240,7 +240,7 @@ func (b *Browser) selectNode() {
 	if b.cursorItem < 0 || b.cursorItem >= len(nodes) {
 		return
 	}
-	node := nodes[b.cursorItem]
+	node := nodes[b.cursorItem].Name
 	if err := command(ipc.CmdSelect, map[string]string{"name": p.Name, "node": node}); err != nil {
 		b.setMessage(err.Error(), true)
 		b.View()
@@ -268,7 +268,7 @@ func (b *Browser) syncProfile() {
 	} else {
 		delete(b.nodes, p.Name)
 		b.Init()
-		message := "已同步 " + p.Name
+		message := t(txtSynced) + p.Name
 		if line := b.trafficLine(p.Name); line != "" {
 			message = line
 		}
@@ -284,7 +284,7 @@ func (b *Browser) syncProfile() {
 func (b *Browser) trafficLine(name string) string {
 	for _, p := range b.profiles {
 		if p.Name == name && p.Total > 0 {
-			return "流量 " + fmtBytes(uint64(p.Upload+p.Download)) + " / " + fmtBytes(uint64(p.Total))
+			return t(txtTraffic) + fmtBytes(uint64(p.Upload+p.Download)) + " / " + fmtBytes(uint64(p.Total))
 		}
 	}
 	return ""
@@ -292,7 +292,7 @@ func (b *Browser) trafficLine(name string) string {
 
 // sortedNodes returns the cached node list of one profile in the current
 // sort order.
-func (b *Browser) sortedNodes(name string) []string {
+func (b *Browser) sortedNodes(name string) []ipc.NodeInfo {
 	return sortNodes(b.nodes[name].Nodes, b.sortMode)
 }
 
@@ -400,7 +400,7 @@ func scrollOffset(offset, cursor, listHeight int) int {
 
 // hintLine returns the operation hints shown on the bottom line.
 func (b *Browser) hintLine() string {
-	return "hjkl 移动  space 切换  n 新增  x 删除  r 同步  ? 帮助"
+	return t(txtHintProfiles)
 }
 
 // footerText returns the plain bottom line of the page.
@@ -431,13 +431,13 @@ func (b *Browser) View() {
 
 	title := "Profiles"
 	titleX := max((w-displayWidth(title))/2, 1)
-	fmt.Fprintf(&buf, "\x1b[1;1H\x1b[K\x1b[1;%dH\x1b[1m%s\x1b[0m", titleX, title)
+	fmt.Fprintf(&buf, "\x1b[1;1H\x1b[K\x1b[1;%dH%s%s\x1b[0m", titleX, colHeading, title)
 	buf.WriteString("\x1b[2;1H\x1b[K")
 
 	listHeight := h - 4
 	if w < 20 || h < 8 {
 		buf.WriteString("\x1b[2;1H\x1b[K")
-		msg := "终端过小，无法浏览"
+		msg := t(txtTooSmallBrowse)
 		msg = truncateToWidthFromStart(msg, max(w-1, 1))
 		x := max((w-displayWidth(msg))/2, 0) + 1
 		fmt.Fprintf(&buf, "\x1b[%d;%dH\x1b[90m%s\x1b[0m", max(h/2, 1), x, msg)
@@ -447,7 +447,7 @@ func (b *Browser) View() {
 	}
 
 	b.scrollToCursor(listHeight)
-	geoms := b.planColumns(w)
+	geoms := b.planColumns(w, listHeight)
 	for row := range listHeight {
 		y := row + 3
 		fmt.Fprintf(&buf, "\x1b[%d;1H\x1b[K", y)
@@ -474,14 +474,14 @@ func (b *Browser) footer(w, h int) string {
 		if b.input.pos < len(b.input.value) {
 			cursorChar = string(b.input.value[b.input.pos])
 		}
-		out += "\x1b[" + itoa(h) + ";" + itoa(x) + "H\x1b[37m" + text + "\x1b[0m"
+		out += "\x1b[" + itoa(h) + ";" + itoa(x) + "H" + colText + text + "\x1b[0m"
 		out += "\x1b[" + itoa(h) + ";" + itoa(x+before) + "H\x1b[7m" + cursorChar + "\x1b[0m"
 		return out
 	}
 	line := truncateToWidth(b.footerText(), w)
 	style := "\x1b[90m"
 	if b.message != "" {
-		style = "\x1b[37m"
+		style = colText
 		if b.messageErr {
 			style = "\x1b[31m"
 		}

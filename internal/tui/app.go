@@ -67,6 +67,8 @@ func Run() error {
 	}
 	defer term.Close()
 
+	setLang(status.Lang)
+	setKeymap(status.Keys)
 	app := &App{term: term}
 	home := NewHome(app, status)
 	browser := NewBrowser(app)
@@ -112,7 +114,7 @@ func Run() error {
 
 // onKey dispatches one key to the overlay, the page or the global map.
 func (a *App) onKey(key rune) {
-	if key == 3 {
+	if key == modCtrl|'c' {
 		a.quit = true
 		return
 	}
@@ -138,7 +140,7 @@ func (a *App) onKey(key rune) {
 	switch {
 	case IsKey(key, keymap.Global.Quit):
 		a.confirmQuit = true
-		a.showConfirm("确定要退出吗？", " 退出", " 取消")
+		a.showConfirm(t(txtQuitAsk), t(txtBtnQuit), t(txtBtnCancel))
 	case IsKey(key, keymap.Global.ShowHelp):
 		a.helpOpen = true
 		a.drawHelpPage()

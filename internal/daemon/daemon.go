@@ -346,7 +346,10 @@ func (d *Daemon) nodesInfo(name string) (ipc.NodesInfo, error) {
 	if err != nil {
 		return ipc.NodesInfo{}, err
 	}
-	out := ipc.NodesInfo{Nodes: info.Nodes}
+	out := ipc.NodesInfo{Nodes: []ipc.NodeInfo{}}
+	for _, node := range info.Nodes {
+		out.Nodes = append(out.Nodes, ipc.NodeInfo{Name: node.Name, Type: node.Type})
+	}
 	i := d.st.Find(name)
 	if i >= 0 {
 		keys := make([]string, 0, len(d.st.Profiles[i].Selected))
@@ -442,8 +445,10 @@ func (d *Daemon) status() ipc.Status {
 		Enabled:  d.st.Enabled,
 		Active:   d.st.Active,
 		DelayURL: d.st.DelayURL,
+		Lang:     d.st.Lang,
 		Sort:     d.st.Sort,
 		Page:     d.st.Page,
+		Keys:     d.st.Keys,
 		Profiles: []ipc.ProfileInfo{},
 		Groups:   []ipc.GroupInfo{},
 	}

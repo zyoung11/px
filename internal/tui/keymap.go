@@ -1,6 +1,16 @@
 package tui
 
-import "strings"
+import (
+	"strings"
+
+	"px/internal/state"
+)
+
+// Modifier bits carried by an encoded key rune.
+const (
+	modCtrl rune = 1 << 29
+	modAlt  rune = 1 << 30
+)
 
 // Key lists the key names bound to one action.
 type Key []string
@@ -87,6 +97,45 @@ func DefaultKeymap() Keymap {
 // keymap is the active keybinding set.
 var keymap = DefaultKeymap()
 
+// setKeymap merges the configured key lists over the defaults.
+func setKeymap(overrides *state.KeyOverrides) {
+	k := DefaultKeymap()
+	if overrides != nil {
+		g := overrides.Global
+		setKey(&k.Global.Quit, g["Quit"])
+		setKey(&k.Global.ShowHelp, g["ShowHelp"])
+		setKey(&k.Global.CyclePages, g["CyclePages"])
+		setKey(&k.Global.SwitchToHome, g["SwitchToHome"])
+		setKey(&k.Global.SwitchToLibrary, g["SwitchToLibrary"])
+		h := overrides.Home
+		setKey(&k.Home.ToggleKernel, h["ToggleKernel"])
+		l := overrides.Library
+		setKey(&k.Library.NavUp, l["NavUp"])
+		setKey(&k.Library.NavDown, l["NavDown"])
+		setKey(&k.Library.NavEnterDir, l["NavEnterDir"])
+		setKey(&k.Library.NavExitDir, l["NavExitDir"])
+		setKey(&k.Library.SelectNode, l["SelectNode"])
+		setKey(&k.Library.AddProfile, l["AddProfile"])
+		setKey(&k.Library.SyncProfile, l["SyncProfile"])
+		setKey(&k.Library.DeleteProfile, l["DeleteProfile"])
+		setKey(&k.Library.Sort, l["Sort"])
+		i := overrides.Input
+		setKey(&k.Library.Input.ConfirmInput, i["ConfirmInput"])
+		setKey(&k.Library.Input.EscapeInput, i["EscapeInput"])
+		setKey(&k.Library.Input.InputBackspace, i["InputBackspace"])
+		setKey(&k.Library.Input.CursorLeft, i["CursorLeft"])
+		setKey(&k.Library.Input.CursorRight, i["CursorRight"])
+	}
+	keymap = k
+}
+
+// setKey replaces one binding when the configured list is not empty.
+func setKey(target *Key, names []string) {
+	if len(names) > 0 {
+		*target = Key(names)
+	}
+}
+
 // specialKeyMap maps key names to their rune values.
 var specialKeyMap = map[string]rune{
 	"enter":     KeyEnter,
@@ -100,16 +149,39 @@ var specialKeyMap = map[string]rune{
 	"right":     KeyArrowRight,
 }
 
-// keyNameToRune converts one key name to its rune value.
+// keyNameToRune converts one key name to its encoded rune value. The
+// name may carry ctrl+ and alt+ prefixes; shift is expressed by the
+// shifted character itself so shift+a is written A.
 func keyNameToRune(name string) (rune, bool) {
-	name = strings.ToLower(name)
-	if r, ok := specialKeyMap[name]; ok {
-		return r, true
+	var mods rune
+	for {
+		rest, mod, ok := cutModifier(name)
+		if !ok {
+			break
+		}
+		mods |= mod
+		name = rest
 	}
-	if len(name) == 1 {
-		return rune(name[0]), true
+	if base, ok := specialKeyMap[strings.ToLower(name)]; ok {
+		return mods | base, true
+	}
+	runes := []rune(name)
+	if len(runes) == 1 {
+		return mods | runes[0], true
 	}
 	return 0, false
+}
+
+// cutModifier strips one modifier prefix from a key name.
+func cutModifier(name string) (string, rune, bool) {
+	lower := strings.ToLower(name)
+	if strings.HasPrefix(lower, "ctrl+") {
+		return name[5:], modCtrl, true
+	}
+	if strings.HasPrefix(lower, "alt+") {
+		return name[4:], modAlt, true
+	}
+	return name, 0, false
 }
 
 // IsKey reports whether the pressed key is bound to the action.

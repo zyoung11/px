@@ -11,9 +11,15 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
+// Node is one node of a profile with its protocol type.
+type Node struct {
+	Name string `json:"name"`
+	Type string `json:"type"`
+}
+
 // Info is the resolved node list of one profile.
 type Info struct {
-	Nodes []string `json:"nodes"`
+	Nodes []Node `json:"nodes"`
 }
 
 // providerTimeout bounds one proxy provider body download.
@@ -21,7 +27,7 @@ const providerTimeout = 20 * time.Second
 
 var (
 	cacheMu sync.Mutex
-	cache   = map[string][]string{}
+	cache   = map[string][]Node{}
 )
 
 // Parse reads a profile body and returns its full node list: DIRECT
@@ -33,21 +39,21 @@ func Parse(body []byte) (Info, error) {
 		return Info{}, err
 	}
 	seen := map[string]bool{}
-	nodes := []string{}
-	add := func(name string) {
-		if name == "" || seen[name] {
+	nodes := []Node{}
+	add := func(node Node) {
+		if node.Name == "" || seen[node.Name] {
 			return
 		}
-		seen[name] = true
-		nodes = append(nodes, name)
+		seen[node.Name] = true
+		nodes = append(nodes, node)
 	}
-	add("DIRECT")
+	add(Node{Name: "DIRECT", Type: "direct"})
 	for _, p := range doc.Proxies {
-		add(p.Name)
+		add(Node{Name: p.Name, Type: p.Type})
 	}
 	for _, provider := range sortedProviderNames(doc.Providers) {
-		for _, name := range providerNodes(doc, provider) {
-			add(name)
+		for _, node := range providerNodes(doc, provider) {
+			add(node)
 		}
 	}
 	return Info{Nodes: nodes}, nil
@@ -63,9 +69,9 @@ func sortedProviderNames(providers map[string]rawProvider) []string {
 	return names
 }
 
-// providerNodes returns the node names one proxy provider contributes,
+// providerNodes returns the nodes one proxy provider contributes,
 // downloading its body on first use.
-func providerNodes(doc rawDoc, name string) []string {
+func providerNodes(doc rawDoc, name string) []Node {
 	spec, ok := doc.Providers[name]
 	if !ok || spec.URL == "" {
 		return nil
@@ -83,9 +89,9 @@ func providerNodes(doc rawDoc, name string) []string {
 	return nodes
 }
 
-// fetchProvider downloads one proxy provider body and reads its node
-// names. A failed download contributes no nodes.
-func fetchProvider(url string) []string {
+// fetchProvider downloads one proxy provider body and reads its nodes.
+// A failed download contributes no nodes.
+func fetchProvider(url string) []Node {
 	ctx, cancel := context.WithTimeout(context.Background(), providerTimeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
@@ -109,11 +115,11 @@ func fetchProvider(url string) []string {
 	if err := yaml.Unmarshal(data, &body); err != nil {
 		return nil
 	}
-	names := []string{}
+	nodes := []Node{}
 	for _, p := range body.Proxies {
-		names = append(names, p.Name)
+		nodes = append(nodes, Node{Name: p.Name, Type: p.Type})
 	}
-	return names
+	return nodes
 }
 
 // rawDoc holds the node relevant fields of a Clash config body.
@@ -123,9 +129,10 @@ type rawDoc struct {
 	Groups    []rawGroup             `yaml:"proxy-groups"`
 }
 
-// rawNamed is a list entry carrying only a name.
+// rawNamed is a list entry carrying a name and a protocol type.
 type rawNamed struct {
 	Name string `yaml:"name"`
+	Type string `yaml:"type"`
 }
 
 // rawProvider is one proxy provider spec.

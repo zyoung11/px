@@ -33,15 +33,25 @@ type Profile struct {
 	Selected  map[string]string `json:"selected,omitempty"`
 }
 
+// KeyOverrides maps action names to their bound keys per section.
+type KeyOverrides struct {
+	Global  map[string][]string `json:"global,omitempty"`
+	Home    map[string][]string `json:"home,omitempty"`
+	Library map[string][]string `json:"library,omitempty"`
+	Input   map[string][]string `json:"input,omitempty"`
+}
+
 // State is the whole JSON document. The daemon is its only writer.
 type State struct {
-	Port     int       `json:"port"`
-	DelayURL string    `json:"delay_url"`
-	Sort     int       `json:"sort,omitempty"`
-	Page     int       `json:"page,omitempty"`
-	Enabled  bool      `json:"enabled"`
-	Active   string    `json:"active"`
-	Profiles []Profile `json:"profiles"`
+	Port     int           `json:"port"`
+	DelayURL string        `json:"delay_url"`
+	Lang     string        `json:"lang,omitempty"`
+	Sort     int           `json:"sort,omitempty"`
+	Page     int           `json:"page,omitempty"`
+	Keys     *KeyOverrides `json:"keys,omitempty"`
+	Enabled  bool          `json:"enabled"`
+	Active   string        `json:"active"`
+	Profiles []Profile     `json:"profiles"`
 }
 
 // Dir returns the directory that holds the state file and profile files.
