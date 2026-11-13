@@ -2,11 +2,12 @@ package tui
 
 import "strings"
 
-// Profile name width limit before an ellipsis cuts the rest off and the
-// narrowest readable preview column.
+// Profile name width limit before an ellipsis cuts the rest off, the
+// narrowest readable preview column and the widest any column grows.
 const (
 	profileNameCells = 12
 	previewMinWidth  = 15
+	columnMaxWidth   = 44
 )
 
 // entry is one column row before width fitting.
@@ -34,7 +35,7 @@ type columnGeometry struct {
 // full.
 func entryWidth(e entry) int {
 	if e.dir {
-		return displayWidth(e.mark + e.name + "/")
+		return displayWidth(e.mark + cutName(e.name, profileNameCells) + "/")
 	}
 	if e.proto == "" {
 		return displayWidth(e.mark + e.name)
@@ -202,10 +203,11 @@ func (b *Browser) planColumns(w, listHeight int) []columnGeometry {
 	cols[0].offset = b.offsetDir
 
 	avail := w - 1
-	x := 1
+	used := 0
+	placed := []int{}
 	for i := range cols {
 		full := columnWidth(cols[i])
-		left := avail - (x - 1)
+		left := avail - used
 		width := min(full, left)
 		if cols[i].preview {
 			switch {
@@ -217,13 +219,19 @@ func (b *Browser) planColumns(w, listHeight int) []columnGeometry {
 				width = 0
 			}
 		}
+		width = min(width, columnMaxWidth)
 		if width < 1 {
 			cols[i].width = 0
 			continue
 		}
-		cols[i].x = x
 		cols[i].width = width
-		x += width + 1
+		placed = append(placed, i)
+		used += width + 1
+	}
+	x := 1
+	for _, i := range placed {
+		cols[i].x = x
+		x += cols[i].width + 1
 	}
 	return cols
 }

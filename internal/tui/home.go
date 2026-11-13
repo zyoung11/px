@@ -85,7 +85,6 @@ func (h *Home) View() {
 
 	title := "Home"
 	titleX := max((w-displayWidth(title))/2, 1)
-	fmt.Fprintf(&buf, "\x1b[1;1H\x1b[K\x1b[1;%dH%s%s\x1b[0m", titleX, colHeading, title)
 
 	if w < 40 || hgt < 12 {
 		msg := t(txtTooSmallDisplay)
@@ -120,14 +119,16 @@ func (h *Home) View() {
 	active = cutName(active, profileNameCells)
 	node = cutName(node, homeNodeCells)
 	pad := max(displayWidth(t(txtKernel)), displayWidth("TUN"), displayWidth(t(txtPort)), displayWidth(t(txtProfile)), displayWidth(t(txtNode)), displayWidth(t(txtTrafficLabel)))
-	drawInfoLine(&buf, 3, w, []infoPair{{t(txtKernel), state}, {"TUN", tun}, {t(txtPort), itoa(h.status.Port)}}, pad)
-	drawInfoLine(&buf, 5, w, []infoPair{{t(txtProfile), active}, {t(txtNode), node}, {t(txtTrafficLabel), traffic}}, pad)
+	boxW := min((w-6)/2, 60)
+	boxH := min(max(boxW*2/5, 6), 20)
+	boxX := 1 + max((w-1-(boxW*2+1))/2, 0)
+	blockTop := 2 + max((hgt-2-(boxH+6))/2, 0)
+	fmt.Fprintf(&buf, "\x1b[%d;1H\x1b[K\x1b[%d;%dH%s%s\x1b[0m", blockTop, blockTop, titleX, colHeading, title)
+	drawInfoLine(&buf, blockTop+2, w, []infoPair{{t(txtKernel), state}, {"TUN", tun}, {t(txtPort), itoa(h.status.Port)}}, pad)
+	drawInfoLine(&buf, blockTop+4, w, []infoPair{{t(txtProfile), active}, {t(txtNode), node}, {t(txtTrafficLabel), traffic}}, pad)
 
-	boxW := (w - 6) / 2
-	boxTop := 7
-	boxH := hgt - boxTop
-	h.drawPanel(&buf, 2, boxTop, boxW, boxH, t(txtUpload), h.txSeries(), h.traffic.TxTotal)
-	h.drawPanel(&buf, 3+boxW+1, boxTop, boxW, boxH, t(txtDownload), h.rxSeries(), h.traffic.RxTotal)
+	h.drawPanel(&buf, boxX, blockTop+6, boxW, boxH, t(txtUpload), h.txSeries(), h.traffic.TxTotal)
+	h.drawPanel(&buf, boxX+boxW+1, blockTop+6, boxW, boxH, t(txtDownload), h.rxSeries(), h.traffic.RxTotal)
 
 	hint := t(txtHintHome)
 	hintX := max((w-displayWidth(hint))/2, 1)
