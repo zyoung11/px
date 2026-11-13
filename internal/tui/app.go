@@ -3,66 +3,59 @@ package tui
 import (
 	"encoding/json"
 	"errors"
-	"os"
-	"strings"
+	"time"
 
 	"px/internal/ipc"
+	"px/internal/traffic"
 )
 
-// Interaction modes of the event loop.
-const (
-	modeNormal = iota
-	modeInput
-	modeConfirm
-)
-
-// Asynchronous event kinds carried over the event channel.
-const (
-	evStatus   = "status"
-	evDelay    = "delay"
-	evOp       = "op"
-	evProgress = "progress"
-)
-
-// event carries one asynchronous IPC result into the event loop.
-type event struct {
-	kind     string
-	name     string
-	progress string
-	err      error
-	status   ipc.Status
-	delays   map[string]uint16
+// Page is one full screen page of the TUI.
+type Page interface {
+	// Init reloads the page state from the daemon.
+	Init()
+	// Modal reports whether the page consumes every key itself.
+	Modal() bool
+	// HandleKey processes one key.
+	HandleKey(key rune)
+	// View draws the page.
+	View()
 }
 
-// App holds the TUI state and drives the event loop.
+// App holds the shared TUI state and drives the event loop.
 type App struct {
-	term   *Terminal
-	keys   <-chan Key
-	events chan event
-	winch  <-chan os.Signal
-
-	status      ipc.Status
-	delays      map[string]uint16
-	focusLeft   bool
-	cursorLeft  int
-	cursorRight int
-	offLeft     int
-	offRight    int
-	openGroup   string
-	mode        int
-	input       Input
-	confirm     string
-	message     string
-	messageErr  bool
-	busy        string
-	helpFull    bool
+	term        *Terminal
+	pages       []Page
+	current     int
+	helpOpen    bool
+	confirmQuit bool
+	confirmMsg  string
+	confirmYes  string
+	confirmNo   string
 	quit        bool
-	width       int
-	height      int
+	message     string
 }
 
-// Run fetches the first snapshot, then executes the event loop until the
-// user quits.
+// showConfirm draws the modal confirmation box and remembers its content
+// so a resize can redraw it.
+func (a *App) showConfirm(msg, suffixConfirm, suffixCancel string) {
+	a.confirmMsg = msg
+	a.confirmYes = suffixConfirm
+	a.confirmNo = suffixCancel
+	a.drawConfirmBox(msg, suffixConfirm, suffixCancel)
+}
+
+// terminal returns the terminal the app draws on.
+func (a *App) terminal() *Terminal {
+	return a.term
+}
+
+// setMessage shows a transient note on the active page.
+func (a *App) setMessage(text string) {
+	a.message = text
+}
+
+// Run connects to the daemon and executes the event loop until the user
+// quits.
 func Run() error {
 	status, err := fetchStatus()
 	if err != nil {
@@ -73,18 +66,137 @@ func Run() error {
 		return err
 	}
 	defer term.Close()
-	a := &App{
-		term:   term,
-		keys:   ReadKeys(),
-		events: make(chan event, 16),
-		winch:  term.Winch(),
-		status: status,
+
+	app := &App{term: term}
+	home := NewHome(app, status)
+	browser := NewBrowser(app)
+	app.pages = []Page{home, browser}
+	if status.Page == 1 {
+		app.current = 1
 	}
-	a.width, a.height = term.Size()
-	a.loop()
+
+	keys := readKeys()
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	winch := term.Winch()
+
+	app.pages[app.current].Init()
+	app.pages[app.current].View()
+	for !app.quit {
+		select {
+		case key, ok := <-keys:
+			if !ok {
+				app.quit = true
+			} else {
+				app.onKey(key)
+			}
+		case <-ticker.C:
+			browser.expireMessage()
+			if _, isHome := app.pages[app.current].(*Home); isHome && !app.helpOpen && !app.confirmQuit {
+				home.Refresh()
+				home.View()
+			}
+		case <-winch:
+			switch {
+			case app.helpOpen:
+				app.drawHelpPage()
+			case app.confirmQuit:
+				app.drawConfirmBox(app.confirmMsg, app.confirmYes, app.confirmNo)
+			default:
+				app.pages[app.current].View()
+			}
+		}
+	}
 	return nil
 }
 
+// onKey dispatches one key to the overlay, the page or the global map.
+func (a *App) onKey(key rune) {
+	if key == 3 {
+		a.quit = true
+		return
+	}
+	if a.helpOpen {
+		a.handleHelpKey(key)
+		return
+	}
+	if a.confirmQuit {
+		if key == KeyEnter {
+			a.quit = true
+			return
+		}
+		if key == 0x1b || IsKey(key, keymap.Global.Quit) {
+			a.confirmQuit = false
+			a.pages[a.current].View()
+		}
+		return
+	}
+	if a.pages[a.current].Modal() {
+		a.pages[a.current].HandleKey(key)
+		return
+	}
+	switch {
+	case IsKey(key, keymap.Global.Quit):
+		a.confirmQuit = true
+		a.showConfirm("确定要退出吗？", " 退出", " 取消")
+	case IsKey(key, keymap.Global.ShowHelp):
+		a.helpOpen = true
+		a.drawHelpPage()
+	case IsKey(key, keymap.Global.CyclePages):
+		a.switchToPage((a.current + 1) % len(a.pages))
+	case IsKey(key, keymap.Global.SwitchToHome):
+		a.switchToPage(0)
+	case IsKey(key, keymap.Global.SwitchToLibrary):
+		a.switchToPage(1)
+	default:
+		a.pages[a.current].HandleKey(key)
+	}
+}
+
+// handleHelpKey closes the help page or jumps to the page a number key
+// names.
+func (a *App) handleHelpKey(key rune) {
+	if IsKey(key, keymap.Global.SwitchToHome) {
+		a.helpOpen = false
+		a.switchToPage(0)
+		return
+	}
+	if IsKey(key, keymap.Global.SwitchToLibrary) {
+		a.helpOpen = false
+		a.switchToPage(1)
+		return
+	}
+	if key == 0x1b || IsKey(key, keymap.Global.Quit) || IsKey(key, keymap.Global.ShowHelp) {
+		a.helpOpen = false
+		a.pages[a.current].View()
+	}
+}
+
+// switchToPage activates the page with the given index and remembers the
+// choice.
+func (a *App) switchToPage(index int) {
+	if index < 0 || index >= len(a.pages) || index == a.current {
+		return
+	}
+	a.current = index
+	a.saveUI()
+	a.pages[a.current].Init()
+	a.pages[a.current].View()
+}
+
+// saveUI stores the sort mode and the active page in the state file.
+func (a *App) saveUI() {
+	sortMode := 0
+	if browser, ok := a.pages[1].(*Browser); ok {
+		sortMode = browser.sortMode
+	}
+	_ = command(ipc.CmdUI, map[string]string{
+		"sort": itoa(sortMode),
+		"page": itoa(a.current),
+	})
+}
+
+// fetchStatus asks the daemon for one state snapshot.
 func fetchStatus() (ipc.Status, error) {
 	var status ipc.Status
 	resp, err := ipc.Command(ipc.Request{Command: ipc.CmdStatus})
@@ -98,279 +210,54 @@ func fetchStatus() (ipc.Status, error) {
 	return status, err
 }
 
-func (a *App) loop() {
-	for !a.quit {
-		a.draw()
-		select {
-		case k, ok := <-a.keys:
-			if !ok {
-				a.quit = true
-			} else {
-				a.onKey(k)
-			}
-		case e := <-a.events:
-			a.onEvent(e)
-		case <-a.winch:
-			a.width, a.height = a.term.Size()
-		}
+// fetchTraffic asks the daemon for the recorded traffic history.
+func fetchTraffic() (traffic.Snapshot, error) {
+	var snap traffic.Snapshot
+	resp, err := ipc.Command(ipc.Request{Command: ipc.CmdTraffic})
+	if err != nil {
+		return snap, err
 	}
+	if !resp.OK {
+		return snap, errors.New(resp.Error)
+	}
+	err = json.Unmarshal(resp.Data, &snap)
+	return snap, err
 }
 
-// request sends one command to the daemon without blocking the loop.
-func (a *App) request(kind, name, cmd string, params map[string]string) {
-	go func() {
-		resp, err := ipc.CommandReport(ipc.Request{Command: cmd, Params: params}, func(text string) {
-			a.events <- event{kind: evProgress, progress: text}
-		})
-		ev := event{kind: kind, name: name, err: err}
-		if ev.err == nil && !resp.OK {
-			ev.err = errors.New(resp.Error)
-		}
-		if ev.err == nil {
-			switch kind {
-			case evStatus:
-				var status ipc.Status
-				if err := json.Unmarshal(resp.Data, &status); err != nil {
-					ev.err = err
-				} else {
-					ev.status = status
-				}
-			case evDelay:
-				var delays map[string]uint16
-				if err := json.Unmarshal(resp.Data, &delays); err != nil {
-					ev.err = err
-				} else {
-					ev.delays = delays
-				}
-			}
-		}
-		a.events <- ev
-	}()
+// fetchNodes asks the daemon for the node list of one profile.
+func fetchNodes(name string) (ipc.NodesInfo, error) {
+	var info ipc.NodesInfo
+	resp, err := ipc.Command(ipc.Request{Command: ipc.CmdNodes, Params: map[string]string{"name": name}})
+	if err != nil {
+		return info, err
+	}
+	if !resp.OK {
+		return info, errors.New(resp.Error)
+	}
+	err = json.Unmarshal(resp.Data, &info)
+	return info, err
 }
 
-// refresh asks the daemon for a fresh snapshot.
-func (a *App) refresh() {
-	a.request(evStatus, "", ipc.CmdStatus, nil)
+// command sends one mutating command and returns its error.
+func command(cmd string, params map[string]string) error {
+	resp, err := ipc.Command(ipc.Request{Command: cmd, Params: params})
+	if err != nil {
+		return err
+	}
+	if !resp.OK {
+		return errors.New(resp.Error)
+	}
+	return nil
 }
 
-func (a *App) onEvent(e event) {
-	switch e.kind {
-	case evProgress:
-		a.busy = e.progress
-	case evStatus:
-		if e.err != nil {
-			a.setMessage(e.err.Error(), true)
-			return
-		}
-		a.status = e.status
-		a.clamp()
-	case evDelay:
-		a.busy = ""
-		if e.err != nil {
-			a.setMessage(e.err.Error(), true)
-			return
-		}
-		a.delays = e.delays
-		a.setMessage("测速完成", false)
-	default:
-		a.busy = ""
-		if e.err != nil {
-			a.setMessage(e.err.Error(), true)
-			return
-		}
-		a.setMessage(e.name+"完成", false)
-		a.refresh()
+// commandReport sends one command and forwards its progress reports.
+func commandReport(cmd string, params map[string]string, report func(string)) error {
+	resp, err := ipc.CommandReport(ipc.Request{Command: cmd, Params: params}, report)
+	if err != nil {
+		return err
 	}
-}
-
-func (a *App) setMessage(text string, isErr bool) {
-	a.message = text
-	a.messageErr = isErr
-}
-
-func (a *App) onKey(k Key) {
-	switch a.mode {
-	case modeInput:
-		a.keyInput(k)
-	case modeConfirm:
-		a.keyConfirm(k)
-	default:
-		a.keyNormal(k)
+	if !resp.OK {
+		return errors.New(resp.Error)
 	}
-}
-
-func (a *App) keyInput(k Key) {
-	done, cancelled := a.input.Key(k)
-	if !done {
-		return
-	}
-	a.mode = modeNormal
-	value := strings.TrimSpace(a.input.Value())
-	if cancelled || value == "" {
-		a.setMessage("已取消", false)
-		return
-	}
-	a.busy = "添加中"
-	a.request(evOp, "添加", ipc.CmdAdd, map[string]string{"url": value})
-}
-
-func (a *App) keyConfirm(k Key) {
-	a.mode = modeNormal
-	if k.Rune == 'y' || k.Rune == 'Y' {
-		a.busy = "删除中"
-		a.request(evOp, "删除", ipc.CmdDelete, map[string]string{"name": a.confirm})
-		return
-	}
-	a.setMessage("已取消", false)
-}
-
-func (a *App) keyNormal(k Key) {
-	switch {
-	case k.Rune == 'q':
-		a.quit = true
-	case k.Name == KeyEsc:
-		a.openGroup = ""
-		a.cursorRight = 0
-		a.offRight = 0
-		a.delays = nil
-	case k.Name == KeyTab:
-		a.focusLeft = !a.focusLeft
-	case k.Name == KeyUp || k.Rune == 'k':
-		a.moveCursor(-1)
-	case k.Name == KeyDown || k.Rune == 'j':
-		a.moveCursor(1)
-	case k.Name == KeyEnter:
-		a.activate()
-	case k.Rune == 'a':
-		a.mode = modeInput
-		a.input.Reset()
-		a.setMessage("输入订阅链接，Enter 确认，Esc 取消", false)
-	case k.Rune == 's':
-		a.commandProfile(ipc.CmdSync, "同步", "同步中")
-	case k.Rune == 'd':
-		if p, ok := a.currentProfile(); ok {
-			a.mode = modeConfirm
-			a.confirm = p.Name
-		}
-	case k.Rune == 't':
-		a.testDelay()
-	case k.Rune == ' ':
-		a.toggleKernel()
-	case k.Rune == '?':
-		a.helpFull = !a.helpFull
-	}
-}
-
-func (a *App) moveCursor(delta int) {
-	if a.focusLeft {
-		a.cursorLeft += delta
-		a.clamp()
-		return
-	}
-	a.cursorRight += delta
-	a.clamp()
-}
-
-// activate runs Enter: open a group, pick a node or activate a profile.
-func (a *App) activate() {
-	if a.focusLeft {
-		a.commandProfile(ipc.CmdActivate, "激活", "激活中")
-		return
-	}
-	if a.openGroup == "" {
-		if g, ok := a.currentGroupItem(); ok {
-			a.openGroup = g.Name
-			a.cursorRight = 0
-			a.offRight = 0
-			a.delays = nil
-		}
-		return
-	}
-	node := a.currentNode()
-	if node == "" {
-		return
-	}
-	a.busy = "选中中"
-	a.request(evOp, "选中", ipc.CmdSelect, map[string]string{"group": a.openGroup, "node": node})
-}
-
-func (a *App) testDelay() {
-	if a.openGroup == "" {
-		a.setMessage("先按 Enter 打开分组再测速", false)
-		return
-	}
-	a.busy = "测速中"
-	a.request(evDelay, "", ipc.CmdDelay, map[string]string{"group": a.openGroup})
-}
-
-func (a *App) toggleKernel() {
-	if a.status.Running {
-		a.busy = "停止中"
-		a.request(evOp, "停止", ipc.CmdStop, nil)
-		return
-	}
-	a.busy = "启动中"
-	a.request(evOp, "启动", ipc.CmdStart, nil)
-}
-
-func (a *App) commandProfile(cmd, name, busy string) {
-	p, ok := a.currentProfile()
-	if !ok {
-		return
-	}
-	a.busy = busy
-	a.request(evOp, name, cmd, map[string]string{"name": p.Name})
-}
-
-func (a *App) currentProfile() (ipc.ProfileInfo, bool) {
-	if a.cursorLeft < 0 || a.cursorLeft >= len(a.status.Profiles) {
-		return ipc.ProfileInfo{}, false
-	}
-	return a.status.Profiles[a.cursorLeft], true
-}
-
-func (a *App) currentGroupItem() (ipc.GroupInfo, bool) {
-	if a.cursorRight < 0 || a.cursorRight >= len(a.status.Groups) {
-		return ipc.GroupInfo{}, false
-	}
-	return a.status.Groups[a.cursorRight], true
-}
-
-func (a *App) currentNode() string {
-	for _, g := range a.status.Groups {
-		if g.Name != a.openGroup {
-			continue
-		}
-		if a.cursorRight < 0 || a.cursorRight >= len(g.Nodes) {
-			return ""
-		}
-		return g.Nodes[a.cursorRight]
-	}
-	return ""
-}
-
-func (a *App) clamp() {
-	if len(a.status.Profiles) == 0 {
-		a.cursorLeft = 0
-	} else if a.cursorLeft >= len(a.status.Profiles) {
-		a.cursorLeft = len(a.status.Profiles) - 1
-	}
-	if a.cursorLeft < 0 {
-		a.cursorLeft = 0
-	}
-	count := len(a.status.Groups)
-	if a.openGroup != "" {
-		count = 0
-		for _, g := range a.status.Groups {
-			if g.Name == a.openGroup {
-				count = len(g.Nodes)
-			}
-		}
-	}
-	if a.cursorRight >= count {
-		a.cursorRight = count - 1
-	}
-	if a.cursorRight < 0 {
-		a.cursorRight = 0
-	}
+	return nil
 }

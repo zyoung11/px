@@ -15,11 +15,21 @@ const DefaultPort = 17890
 // DefaultDelayURL is the latency test target used when the JSON omits it.
 const DefaultDelayURL = "http://www.gstatic.com/generate_204"
 
+// UserInfo is the subscription traffic accounting carried by the
+// subscription-userinfo response header, all values in bytes.
+type UserInfo struct {
+	Upload   int64 `json:"upload"`
+	Download int64 `json:"download"`
+	Total    int64 `json:"total"`
+	Expire   int64 `json:"expire,omitempty"`
+}
+
 // Profile is one subscription entry in the state file.
 type Profile struct {
 	Name      string            `json:"name"`
 	URL       string            `json:"url"`
 	UpdatedAt string            `json:"updated_at,omitempty"`
+	Traffic   *UserInfo         `json:"traffic,omitempty"`
 	Selected  map[string]string `json:"selected,omitempty"`
 }
 
@@ -27,6 +37,8 @@ type Profile struct {
 type State struct {
 	Port     int       `json:"port"`
 	DelayURL string    `json:"delay_url"`
+	Sort     int       `json:"sort,omitempty"`
+	Page     int       `json:"page,omitempty"`
 	Enabled  bool      `json:"enabled"`
 	Active   string    `json:"active"`
 	Profiles []Profile `json:"profiles"`

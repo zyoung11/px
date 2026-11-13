@@ -20,6 +20,9 @@ const (
 	CmdActivate = "activate"
 	CmdSelect   = "select"
 	CmdDelay    = "delay"
+	CmdNodes    = "nodes"
+	CmdTraffic  = "traffic"
+	CmdUI       = "ui"
 	CmdStart    = "start"
 	CmdStop     = "stop"
 )
@@ -45,6 +48,16 @@ type ProfileInfo struct {
 	Name      string `json:"name"`
 	URL       string `json:"url"`
 	UpdatedAt string `json:"updated_at,omitempty"`
+	Upload    int64  `json:"upload"`
+	Download  int64  `json:"download"`
+	Total     int64  `json:"total"`
+}
+
+// NodesInfo is the resolved node list of one profile together with the
+// currently selected node.
+type NodesInfo struct {
+	Nodes    []string `json:"nodes"`
+	Selected string   `json:"selected"`
 }
 
 // GroupInfo is one proxy group in a status snapshot.
@@ -62,6 +75,8 @@ type Status struct {
 	Enabled  bool          `json:"enabled"`
 	Active   string        `json:"active"`
 	DelayURL string        `json:"delay_url"`
+	Sort     int           `json:"sort"`
+	Page     int           `json:"page"`
 	Profiles []ProfileInfo `json:"profiles"`
 	Groups   []GroupInfo   `json:"groups"`
 }

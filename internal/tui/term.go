@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
@@ -22,13 +23,13 @@ func NewTerminal() (*Terminal, error) {
 		return nil, err
 	}
 	t := &Terminal{fd: fd, state: state}
-	os.Stdout.WriteString("\x1b[?1049h\x1b[?25l")
+	fmt.Print("\x1b[?1049h\x1b[?25l")
 	return t, nil
 }
 
 // Close restores the terminal to its original state.
 func (t *Terminal) Close() {
-	os.Stdout.WriteString("\x1b[?25h\x1b[?1049l")
+	fmt.Print("\x1b[?25h\x1b[?1049l")
 	term.Restore(t.fd, t.state)
 }
 
@@ -48,7 +49,12 @@ func (t *Terminal) Winch() <-chan os.Signal {
 	return ch
 }
 
-// Write sends raw bytes to the terminal.
-func (t *Terminal) Write(s string) {
-	os.Stdout.WriteString(s)
+// beginFrame opens one atomic screen update.
+func (t *Terminal) beginFrame() {
+	fmt.Print("\x1b[?2026h")
+}
+
+// endFrame flushes one atomic screen update.
+func (t *Terminal) endFrame() {
+	fmt.Print("\x1b[?2026l")
 }
