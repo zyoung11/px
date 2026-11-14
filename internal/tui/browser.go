@@ -23,6 +23,7 @@ type browsePos struct {
 // BM's multi column style.
 type Browser struct {
 	app          *App
+	active       string
 	profiles     []ipc.ProfileInfo
 	nodes        map[string]ipc.NodesInfo
 	history      map[string]browsePos
@@ -61,6 +62,7 @@ func (b *Browser) Init() {
 		return
 	}
 	b.profiles = status.Profiles
+	b.active = status.Active
 	b.sortMode = status.Sort
 	b.clamp()
 }
@@ -120,14 +122,13 @@ func (b *Browser) handleConfirmKey(key rune) {
 	name := b.confirm
 	b.confirm = ""
 	if key == KeyEnter {
-		b.app.terminal().beginFrame()
-		b.app.terminal().endFrame()
-		if err := command(ipc.CmdDelete, map[string]string{"name": name}); err != nil {
-			b.setMessage(err.Error(), true)
-		} else {
-			b.setMessage(t(txtDeleted)+name, false)
+		b.app.run(ipc.CmdDelete, map[string]string{"name": name}, func(err error) {
+			if err != nil {
+				b.setMessage(err.Error(), true)
+			}
 			b.Init()
-		}
+			b.View()
+		})
 	}
 	b.View()
 }
@@ -143,16 +144,13 @@ func (b *Browser) handleInputKey(key rune) {
 			b.View()
 			return
 		}
-		err := commandReport(ipc.CmdAdd, map[string]string{"url": value}, func(text string) {
-			b.setMessage(text, false)
-			b.drawFooterOnly()
-		})
-		if err != nil {
-			b.setMessage(err.Error(), true)
-		} else {
-			b.setMessage(t(txtAdded), false)
+		b.app.run(ipc.CmdAdd, map[string]string{"url": value}, func(err error) {
+			if err != nil {
+				b.setMessage(err.Error(), true)
+			}
 			b.Init()
-		}
+			b.View()
+		})
 		b.View()
 	case IsKey(key, keymap.Library.Input.EscapeInput):
 		b.input.active = false
@@ -241,14 +239,17 @@ func (b *Browser) selectNode() {
 		return
 	}
 	node := nodes[b.cursorItem].Name
-	if err := command(ipc.CmdSelect, map[string]string{"name": p.Name, "node": node}); err != nil {
-		b.setMessage(err.Error(), true)
+	b.app.run(ipc.CmdSelect, map[string]string{"name": p.Name, "node": node}, func(err error) {
+		if err != nil {
+			b.setMessage(err.Error(), true)
+		} else {
+			delete(b.nodes, p.Name)
+			b.loadNodes(p.Name)
+			b.active = p.Name
+			b.setMessage("", false)
+		}
 		b.View()
-		return
-	}
-	delete(b.nodes, p.Name)
-	b.loadNodes(p.Name)
-	b.setMessage("", false)
+	})
 	b.View()
 }
 
@@ -259,24 +260,21 @@ func (b *Browser) syncProfile() {
 	if !ok {
 		return
 	}
-	err := commandReport(ipc.CmdSync, map[string]string{"name": p.Name}, func(text string) {
-		b.setMessage(text, false)
-		b.drawFooterOnly()
+	b.app.run(ipc.CmdSync, map[string]string{"name": p.Name}, func(err error) {
+		if err != nil {
+			b.setMessage(err.Error(), true)
+		} else {
+			delete(b.nodes, p.Name)
+			b.Init()
+			if line := b.trafficLine(p.Name); line != "" {
+				b.setMessage(line, false)
+			}
+			if b.inside {
+				b.loadNodes(p.Name)
+			}
+		}
+		b.View()
 	})
-	if err != nil {
-		b.setMessage(err.Error(), true)
-	} else {
-		delete(b.nodes, p.Name)
-		b.Init()
-		message := t(txtSynced) + p.Name
-		if line := b.trafficLine(p.Name); line != "" {
-			message = line
-		}
-		b.setMessage(message, false)
-		if b.inside {
-			b.loadNodes(p.Name)
-		}
-	}
 	b.View()
 }
 
@@ -405,6 +403,9 @@ func (b *Browser) hintLine() string {
 
 // footerText returns the plain bottom line of the page.
 func (b *Browser) footerText() string {
+	if b.app.busy {
+		return b.app.loadingLine()
+	}
 	if b.message != "" {
 		return b.message
 	}

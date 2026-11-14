@@ -43,11 +43,33 @@ func (h *Home) HandleKey(key rune) {
 	if h.status.Running {
 		cmd = ipc.CmdStop
 	}
-	if err := command(cmd, nil); err != nil {
-		h.app.setMessage(err.Error())
-	}
-	h.Refresh()
+	h.app.run(cmd, nil, func(err error) {
+		h.app.setMessage("")
+		if err != nil {
+			h.app.setMessage(err.Error())
+		}
+		h.Refresh()
+		h.View()
+	})
 	h.View()
+}
+
+// footerLine returns the bottom line of the page.
+func (h *Home) footerLine() string {
+	if h.app.busy {
+		return h.app.loadingLine()
+	}
+	return t(txtHintHome)
+}
+
+// drawFooterOnly repaints the bottom line alone.
+func (h *Home) drawFooterOnly() {
+	h.app.terminal().beginFrame()
+	defer h.app.terminal().endFrame()
+	w, hgt := h.app.terminal().Size()
+	line := truncateToWidth(h.footerLine(), w)
+	x := max((w-displayWidth(line))/2, 1)
+	print("\x1b[" + itoa(hgt) + ";1H\x1b[K\x1b[" + itoa(hgt) + ";" + itoa(x) + "H\x1b[90m" + line + "\x1b[0m")
 }
 
 // Refresh reloads status, traffic and the selected node from the daemon.
@@ -130,7 +152,7 @@ func (h *Home) View() {
 	h.drawPanel(&buf, boxX, blockTop+6, boxW, boxH, t(txtUpload), h.txSeries(), h.traffic.TxTotal)
 	h.drawPanel(&buf, boxX+boxW+1, blockTop+6, boxW, boxH, t(txtDownload), h.rxSeries(), h.traffic.RxTotal)
 
-	hint := t(txtHintHome)
+	hint := h.footerLine()
 	hintX := max((w-displayWidth(hint))/2, 1)
 	fmt.Fprintf(&buf, "\x1b[%d;1H\x1b[K\x1b[%d;%dH\x1b[90m%s\x1b[0m", hgt, hgt, hintX, hint)
 

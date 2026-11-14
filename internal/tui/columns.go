@@ -45,7 +45,9 @@ func entryWidth(e entry) int {
 
 // fitEntry renders one entry inside the given width. The name gives way
 // before the protocol does, and the protocol goes first when it would
-// eat half the width or more.
+// eat half the width or more. A selected entry is green text with a
+// check mark; only the cursor row draws the highlight bar, green when
+// the entry is selected and white otherwise.
 func fitEntry(e entry, width int) (string, string) {
 	style := "\x1b[0m"
 	if e.selected {
@@ -54,28 +56,34 @@ func fitEntry(e entry, width int) (string, string) {
 	if e.cursor {
 		style += "\x1b[7m"
 	}
+	line := ""
 	if e.dir {
-		return e.mark + cutName(e.name, profileNameCells) + "/", style
+		line = e.mark + cutName(e.name, profileNameCells) + "/"
+	} else {
+		mark := displayWidth(e.mark)
+		proto := displayWidth(e.proto)
+		switch {
+		case e.proto == "" || displayWidth(e.mark+e.name)+2+proto <= width:
+			line = e.mark + e.name + protoSuffix(e.proto, e.cursor)
+		case proto*2 >= width || width-mark-2-proto < 3:
+			line = e.mark + cutEllipsis(e.name, width-mark)
+		default:
+			line = e.mark + cutEllipsis(e.name, width-mark-2-proto) + protoSuffix(e.proto, e.cursor)
+		}
 	}
-	mark := displayWidth(e.mark)
-	proto := displayWidth(e.proto)
-	if e.proto == "" || displayWidth(e.mark+e.name)+2+proto <= width {
-		return e.mark + e.name + protoSuffix(e.proto, e.cursor), style
+	if e.cursor {
+		line += strings.Repeat(" ", min(displayWidth(e.mark), max(width-visibleWidth(line), 0)))
 	}
-	rest := width - mark
-	if proto*2 >= width || rest-2-proto < 3 {
-		return e.mark + cutEllipsis(e.name, rest), style
-	}
-	return e.mark + cutEllipsis(e.name, rest-2-proto) + protoSuffix(e.proto, e.cursor), style
+	return line, style
 }
 
-// protoSuffix renders the protocol tag, plain on cursor rows so the
-// reverse highlight stays uniform.
-func protoSuffix(proto string, cursor bool) string {
+// protoSuffix renders the protocol tag, plain on highlighted rows so
+// the highlight keeps one color.
+func protoSuffix(proto string, highlight bool) string {
 	if proto == "" {
 		return ""
 	}
-	if cursor {
+	if highlight {
 		return "  " + proto
 	}
 	return "  " + protoColor(proto) + proto + "\x1b[0m"
@@ -139,8 +147,10 @@ func (b *Browser) planColumns(w, listHeight int) []columnGeometry {
 	profileCol := columnGeometry{cursor: -1}
 	for i, p := range b.profiles {
 		selected := false
-		if info, ok := b.nodes[p.Name]; ok && info.Selected != "" {
-			selected = true
+		if p.Name == b.active {
+			if info, ok := b.nodes[p.Name]; ok && info.Selected != "" {
+				selected = true
+			}
 		}
 		cursor := i == b.cursorDir && !b.inside
 		mark := "▸ "
@@ -165,13 +175,14 @@ func (b *Browser) planColumns(w, listHeight int) []columnGeometry {
 		info := b.nodes[name.Name]
 		for i, node := range b.sortedNodes(name.Name) {
 			cursor := i == b.cursorItem
+			selected := name.Name == b.active && node.Name == info.Selected
 			mark := "  "
-			if node.Name == info.Selected {
+			if selected {
 				mark = "✓ "
 			}
 			nodeCol.entries = append(nodeCol.entries, entry{
 				name: node.Name, proto: node.Type, mark: mark,
-				selected: node.Name == info.Selected, cursor: cursor,
+				selected: selected, cursor: cursor,
 			})
 			if cursor {
 				nodeCol.cursor = i
@@ -189,13 +200,14 @@ func (b *Browser) planColumns(w, listHeight int) []columnGeometry {
 		}
 		preview.offset = max(offset, 0)
 		for _, node := range b.sortedNodes(p.Name) {
+			selected := p.Name == b.active && node.Name == info.Selected
 			mark := "  "
-			if node.Name == info.Selected {
+			if selected {
 				mark = "✓ "
 			}
 			preview.entries = append(preview.entries, entry{
 				name: node.Name, proto: node.Type, mark: mark,
-				selected: node.Name == info.Selected,
+				selected: selected,
 			})
 		}
 		cols = append(cols, preview)
@@ -238,12 +250,8 @@ func (b *Browser) planColumns(w, listHeight int) []columnGeometry {
 
 // drawColumnCell draws one cell inside a column, padding it with spaces
 // so no stale content survives. Styled text is cut on its visible width.
-func drawColumnCell(x, width, y int, line, style string, isCursor, dim bool) string {
+func drawColumnCell(x, width, y int, line, style string, dim bool) string {
 	line = truncateStyled(line, width)
-	if isCursor {
-		leading := len(line) - len(strings.TrimLeft(line, " "))
-		line += strings.Repeat(" ", min(leading, max(width-visibleWidth(line), 0)))
-	}
 	if dim {
 		style += "\x1b[2m"
 	}
@@ -262,5 +270,5 @@ func (b *Browser) drawColumnRow(geom columnGeometry, row int, dim bool) string {
 	}
 	e := geom.entries[idx]
 	line, style := fitEntry(e, geom.width)
-	return drawColumnCell(geom.x, geom.width, row+3, line, style, e.cursor, dim)
+	return drawColumnCell(geom.x, geom.width, row+3, line, style, dim)
 }

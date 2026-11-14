@@ -21,9 +21,23 @@ type Page interface {
 	View()
 }
 
+// event carries one asynchronous IPC result into the event loop.
+type event struct {
+	progress string
+	err      error
+	done     func(error)
+}
+
+// spinFrames are the spinner glyphs cycled while loading.
+const spinFrames = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+
 // App holds the shared TUI state and drives the event loop.
 type App struct {
 	term        *Terminal
+	events      chan event
+	busy        bool
+	busyText    string
+	spin        int
 	pages       []Page
 	current     int
 	helpOpen    bool
@@ -32,6 +46,7 @@ type App struct {
 	confirmYes  string
 	confirmNo   string
 	quit        bool
+	tick        int
 	message     string
 }
 
@@ -54,6 +69,56 @@ func (a *App) setMessage(text string) {
 	a.message = text
 }
 
+// run starts one asynchronous command with loading feedback and calls
+// done on the event loop when it finishes.
+func (a *App) run(cmd string, params map[string]string, done func(error)) {
+	a.busy = true
+	a.busyText = t(txtLoading)
+	go func() {
+		resp, err := ipc.CommandReport(ipc.Request{Command: cmd, Params: params}, func(text string) {
+			a.events <- event{progress: text}
+		})
+		if err == nil && !resp.OK {
+			err = errors.New(resp.Error)
+		}
+		a.events <- event{err: err, done: done}
+	}()
+}
+
+// onEvent finishes one asynchronous command on the event loop.
+func (a *App) onEvent(e event) {
+	if e.done == nil {
+		a.busyText = e.progress
+		return
+	}
+	a.busy = false
+	a.busyText = ""
+	e.done(e.err)
+}
+
+// loadingLine returns the bottom line shown while loading.
+func (a *App) loadingLine() string {
+	frames := []rune(spinFrames)
+	text := a.busyText
+	if text == "" {
+		text = t(txtLoading)
+	}
+	return string(frames[a.spin%len(frames)]) + " " + text
+}
+
+// redrawBottom repaints only the bottom line of the active page.
+func (a *App) redrawBottom() {
+	if a.helpOpen || a.confirmQuit {
+		return
+	}
+	switch page := a.pages[a.current].(type) {
+	case *Browser:
+		page.drawFooterOnly()
+	case *Home:
+		page.drawFooterOnly()
+	}
+}
+
 // Run connects to the daemon and executes the event loop until the user
 // quits.
 func Run() error {
@@ -69,7 +134,7 @@ func Run() error {
 
 	setLang(status.Lang)
 	setKeymap(status.Keys)
-	app := &App{term: term}
+	app := &App{term: term, events: make(chan event, 16)}
 	home := NewHome(app, status)
 	browser := NewBrowser(app)
 	app.pages = []Page{home, browser}
@@ -78,7 +143,7 @@ func Run() error {
 	}
 
 	keys := readKeys()
-	ticker := time.NewTicker(time.Second)
+	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 	winch := term.Winch()
 
@@ -92,11 +157,20 @@ func Run() error {
 			} else {
 				app.onKey(key)
 			}
+		case e := <-app.events:
+			app.onEvent(e)
 		case <-ticker.C:
 			browser.expireMessage()
-			if _, isHome := app.pages[app.current].(*Home); isHome && !app.helpOpen && !app.confirmQuit {
-				home.Refresh()
-				home.View()
+			if app.busy {
+				app.spin++
+				app.redrawBottom()
+			}
+			app.tick++
+			if app.tick%10 == 0 {
+				if _, isHome := app.pages[app.current].(*Home); isHome && !app.helpOpen && !app.confirmQuit {
+					home.Refresh()
+					home.View()
+				}
 			}
 		case <-winch:
 			switch {
@@ -243,18 +317,6 @@ func fetchNodes(name string) (ipc.NodesInfo, error) {
 // command sends one mutating command and returns its error.
 func command(cmd string, params map[string]string) error {
 	resp, err := ipc.Command(ipc.Request{Command: cmd, Params: params})
-	if err != nil {
-		return err
-	}
-	if !resp.OK {
-		return errors.New(resp.Error)
-	}
-	return nil
-}
-
-// commandReport sends one command and forwards its progress reports.
-func commandReport(cmd string, params map[string]string, report func(string)) error {
-	resp, err := ipc.CommandReport(ipc.Request{Command: cmd, Params: params}, report)
 	if err != nil {
 		return err
 	}

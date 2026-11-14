@@ -46,6 +46,7 @@ var (
 		"hjkl 移动  space 切换  n 新增  x 删除  r 同步  ? 帮助",
 	}
 
+	txtLoading         = uiText{"Loading", "加载中"}
 	txtAdded           = uiText{"Added", "已添加"}
 	txtDeleted         = uiText{"Deleted ", "已删除 "}
 	txtSynced          = uiText{"Synced ", "已同步 "}
