@@ -1,6 +1,6 @@
 # px
 
-px is a minimal [mihomo](https://github.com/MetaCubeX/mihomo) controller for headless Linux servers. One binary contains the TUI, the daemon that runs the kernel and TUN, and the systemd installer. All state is stored in one JSON file.
+px is a minimal [mihomo](https://github.com/MetaCubeX/mihomo) controller. One binary contains the TUI, the daemon that runs the kernel and TUN, and the systemd installer. All state is stored in one JSON file.
 
 **English** · [简体中文](README_CN.md)
 

@@ -1,6 +1,6 @@
 # px
 
-px 是面向无头 Linux 服务器的极简 [mihomo](https://github.com/MetaCubeX/mihomo) 控制器。单个二进制包含 TUI、运行内核与 TUN 的守护进程和 systemd 安装器。全部状态保存在一个 JSON 文件中。
+px 是个极简 [mihomo](https://github.com/MetaCubeX/mihomo) 控制器。单个二进制包含 TUI、运行内核与 TUN 的守护进程和 systemd 安装器。全部状态保存在一个 JSON 文件中。
 
 [English](README.md) · **简体中文**
 
