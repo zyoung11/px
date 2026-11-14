@@ -44,11 +44,6 @@ func fit(s string, w int) string {
 	return cut
 }
 
-// truncateToWidth shortens text to the given display width.
-func truncateToWidth(text string, width int) string {
-	return truncateToWidthFromStart(text, width)
-}
-
 // displayWidth returns the display width of text in cells.
 func displayWidth(text string) int {
 	return runewidth.StringWidth(text)
@@ -79,8 +74,9 @@ func visibleWidth(s string) int {
 	return w
 }
 
-// truncateStyled cuts styled text to the visible width, marks the cut
-// with an ellipsis and closes any open color.
+// truncateStyled cuts styled text to the visible width and marks the
+// cut with an ellipsis in the style active at the cut, so the marker
+// keeps the color of the text it replaces.
 func truncateStyled(s string, width int) string {
 	if width <= 0 {
 		return ""
@@ -91,10 +87,15 @@ func truncateStyled(s string, width int) string {
 	var b strings.Builder
 	used := 0
 	cut := false
+	last := ""
 	for i := 0; i < len(s) && !cut; {
 		if s[i] == 0x1b {
 			end := ansiEnd(s, i)
-			b.WriteString(s[i:end])
+			seq := s[i:end]
+			if strings.HasSuffix(seq, "m") {
+				last = seq
+			}
+			b.WriteString(seq)
 			i = end
 			continue
 		}
@@ -108,7 +109,8 @@ func truncateStyled(s string, width int) string {
 		used += rw
 		i += size
 	}
-	b.WriteString("\x1b[0m...")
+	b.WriteString(last)
+	b.WriteString("...")
 	return b.String()
 }
 

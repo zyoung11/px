@@ -396,9 +396,48 @@ func scrollOffset(offset, cursor, listHeight int) int {
 	return offset
 }
 
-// hintLine returns the operation hints shown on the bottom line.
+// hintLine returns the operation hints shown on the bottom line. An
+// action without a bound key is left out.
 func (b *Browser) hintLine() string {
-	return t(txtHintProfiles)
+	return joinHints(
+		hintItem(hintKeys(keymap.Library.NavExitDir, keymap.Library.NavDown, keymap.Library.NavEnterDir, keymap.Library.NavUp), txtHintMove),
+		hintItem(hintKeys(keymap.Library.SelectNode), txtHintSwitch),
+		hintItem(hintKeys(keymap.Library.AddProfile), txtHintAdd),
+		hintItem(hintKeys(keymap.Library.DeleteProfile), txtHintDelete),
+		hintItem(hintKeys(keymap.Library.SyncProfile), txtHintSync),
+		hintItem(hintKeys(keymap.Global.ShowHelp), txtHintHelp),
+	)
+}
+
+// hintKeys lists the first bound key of each action with every key
+// underlined on its own, so the slash between keys stays bare.
+func hintKeys(actions ...Key) string {
+	parts := []string{}
+	for _, keys := range actions {
+		if len(keys) > 0 {
+			parts = append(parts, "\x1b[4m"+keys[0]+"\x1b[24m")
+		}
+	}
+	return strings.Join(parts, "/")
+}
+
+// hintItem renders one hint entry, empty when the action has no key.
+func hintItem(keys string, label uiText) string {
+	if keys == "" {
+		return ""
+	}
+	return keys + " " + t(label)
+}
+
+// joinHints joins the non-empty hint entries with spacing.
+func joinHints(items ...string) string {
+	kept := []string{}
+	for _, item := range items {
+		if item != "" {
+			kept = append(kept, item)
+		}
+	}
+	return strings.Join(kept, " | ")
 }
 
 // footerText returns the plain bottom line of the page.
@@ -479,7 +518,7 @@ func (b *Browser) footer(w, h int) string {
 		out += "\x1b[" + itoa(h) + ";" + itoa(x+before) + "H\x1b[7m" + cursorChar + "\x1b[0m"
 		return out
 	}
-	line := truncateToWidth(b.footerText(), w)
+	line := truncateStyled(b.footerText(), w)
 	style := "\x1b[90m"
 	if b.message != "" {
 		style = colText
@@ -487,7 +526,7 @@ func (b *Browser) footer(w, h int) string {
 			style = "\x1b[31m"
 		}
 	}
-	x := max((w-displayWidth(line))/2, 1)
+	x := max((w-visibleWidth(line))/2, 1)
 	out += "\x1b[" + itoa(h) + ";" + itoa(x) + "H" + style + line + "\x1b[0m"
 	return out
 }

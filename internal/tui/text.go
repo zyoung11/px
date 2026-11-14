@@ -40,16 +40,16 @@ var (
 	txtBtnDelete    = uiText{" Delete", " 删除"}
 	txtBtnCancel    = uiText{" Cancel", " 取消"}
 
-	txtHintHome     = uiText{"space start  tab switch  ? help", "space 开启  tab 换页  ? 帮助"}
-	txtHintProfiles = uiText{
-		"hjkl move  space switch  n add  x delete  r sync  ? help",
-		"hjkl 移动  space 切换  n 新增  x 删除  r 同步  ? 帮助",
-	}
+	txtHintStart  = uiText{"start", "开启"}
+	txtHintPages  = uiText{"switch page", "换页"}
+	txtHintMove   = uiText{"move", "移动"}
+	txtHintSwitch = uiText{"switch", "切换"}
+	txtHintAdd    = uiText{"add", "新增"}
+	txtHintDelete = uiText{"delete", "删除"}
+	txtHintSync   = uiText{"sync", "同步"}
+	txtHintHelp   = uiText{"help", "帮助"}
 
 	txtLoading         = uiText{"Loading", "加载中"}
-	txtAdded           = uiText{"Added", "已添加"}
-	txtDeleted         = uiText{"Deleted ", "已删除 "}
-	txtSynced          = uiText{"Synced ", "已同步 "}
 	txtTraffic         = uiText{"Traffic ", "流量 "}
 	txtSort            = uiText{"Sort ", "排序 "}
 	txtTooSmallBrowse  = uiText{"Terminal too small to browse", "终端过小，无法浏览"}

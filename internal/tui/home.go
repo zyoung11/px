@@ -59,7 +59,11 @@ func (h *Home) footerLine() string {
 	if h.app.busy {
 		return h.app.loadingLine()
 	}
-	return t(txtHintHome)
+	return joinHints(
+		hintItem(hintKeys(keymap.Home.ToggleKernel), txtHintStart),
+		hintItem(hintKeys(keymap.Global.CyclePages), txtHintPages),
+		hintItem(hintKeys(keymap.Global.ShowHelp), txtHintHelp),
+	)
 }
 
 // drawFooterOnly repaints the bottom line alone.
@@ -67,8 +71,8 @@ func (h *Home) drawFooterOnly() {
 	h.app.terminal().beginFrame()
 	defer h.app.terminal().endFrame()
 	w, hgt := h.app.terminal().Size()
-	line := truncateToWidth(h.footerLine(), w)
-	x := max((w-displayWidth(line))/2, 1)
+	line := truncateStyled(h.footerLine(), w)
+	x := max((w-visibleWidth(line))/2, 1)
 	print("\x1b[" + itoa(hgt) + ";1H\x1b[K\x1b[" + itoa(hgt) + ";" + itoa(x) + "H\x1b[90m" + line + "\x1b[0m")
 }
 
@@ -153,7 +157,7 @@ func (h *Home) View() {
 	h.drawPanel(&buf, boxX+boxW+1, blockTop+6, boxW, boxH, t(txtDownload), h.rxSeries(), h.traffic.RxTotal)
 
 	hint := h.footerLine()
-	hintX := max((w-displayWidth(hint))/2, 1)
+	hintX := max((w-visibleWidth(hint))/2, 1)
 	fmt.Fprintf(&buf, "\x1b[%d;1H\x1b[K\x1b[%d;%dH\x1b[90m%s\x1b[0m", hgt, hgt, hintX, hint)
 
 	print(buf.String())

@@ -71,14 +71,14 @@ func DefaultKeymap() Keymap {
 			SwitchToLibrary: Key{"2"},
 		},
 		Home: HomeKeymap{
-			ToggleKernel: Key{"enter", "space"},
+			ToggleKernel: Key{"space", "enter"},
 		},
 		Library: LibraryKeymap{
 			NavUp:         Key{"k", "w", "up"},
 			NavDown:       Key{"j", "s", "down"},
 			NavEnterDir:   Key{"l", "d", "right"},
 			NavExitDir:    Key{"h", "a", "left"},
-			SelectNode:    Key{"enter", "space"},
+			SelectNode:    Key{"space", "enter"},
 			AddProfile:    Key{"n"},
 			SyncProfile:   Key{"r"},
 			DeleteProfile: Key{"x"},
@@ -129,9 +129,10 @@ func setKeymap(overrides *state.KeyOverrides) {
 	keymap = k
 }
 
-// setKey replaces one binding when the configured list is not empty.
+// setKey replaces one binding when the config names the action. An
+// empty list unbinds the action, and an absent key keeps the default.
 func setKey(target *Key, names []string) {
-	if len(names) > 0 {
+	if names != nil {
 		*target = Key(names)
 	}
 }
