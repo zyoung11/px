@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"px/internal/keymap"
 )
 
 // DefaultPort is the mixed http+socks listener port used when the JSON omits it.
@@ -33,22 +35,18 @@ type Profile struct {
 	Selected  map[string]string `json:"selected,omitempty"`
 }
 
-// KeyOverrides maps action names to their bound keys per section.
-type KeyOverrides struct {
-	Global  map[string][]string `json:"global,omitempty"`
-	Home    map[string][]string `json:"home,omitempty"`
-	Library map[string][]string `json:"library,omitempty"`
-	Input   map[string][]string `json:"input,omitempty"`
-}
+// KeyOverrides maps action names to their bound keys per section, the
+// shape the config file stores.
+type KeyOverrides = keymap.Overrides
 
 // State is the whole JSON document. The daemon is its only writer.
 type State struct {
 	Port     int           `json:"port"`
 	DelayURL string        `json:"delay_url"`
-	Lang     string        `json:"lang,omitempty"`
-	Sort     int           `json:"sort,omitempty"`
-	Page     int           `json:"page,omitempty"`
-	Keys     *KeyOverrides `json:"keys,omitempty"`
+	Lang     string        `json:"lang"`
+	Sort     int           `json:"sort"`
+	Page     int           `json:"page"`
+	Keys     *KeyOverrides `json:"keys"`
 	Enabled  bool          `json:"enabled"`
 	Active   string        `json:"active"`
 	Profiles []Profile     `json:"profiles"`
@@ -126,6 +124,12 @@ func (st *State) applyDefaults() {
 	}
 	if st.DelayURL == "" {
 		st.DelayURL = DefaultDelayURL
+	}
+	if st.Lang == "" {
+		st.Lang = "en"
+	}
+	if st.Keys == nil {
+		st.Keys = keymap.AsOverrides(keymap.DefaultKeymap())
 	}
 	if st.Profiles == nil {
 		st.Profiles = []Profile{}

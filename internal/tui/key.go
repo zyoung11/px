@@ -5,16 +5,6 @@ import (
 	"unicode/utf8"
 )
 
-// Key constants for keys that carry no printable rune.
-const (
-	KeyArrowUp = 1000 + iota
-	KeyArrowDown
-	KeyArrowLeft
-	KeyArrowRight
-	KeyEnter
-	KeyBackspace
-)
-
 // readKeys starts a goroutine that decodes stdin into key events in the
 // same shape as BM: runes for printable keys, constants above otherwise.
 func readKeys() <-chan rune {

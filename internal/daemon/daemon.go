@@ -39,13 +39,15 @@ const (
 // Daemon owns the state file and the kernel. The TUI reaches it over the
 // control socket only.
 type Daemon struct {
-	ctx        context.Context
-	configPath string
-	geoDir     string
-	traffic    *traffic.Sampler
-	mu         sync.Mutex
-	st         *state.State
-	running    bool
+	ctx          context.Context
+	configPath   string
+	geoDir       string
+	traffic      *traffic.Sampler
+	mu           sync.Mutex
+	st           *state.State
+	stMTime      time.Time
+	profileMTime map[string]time.Time
+	running      bool
 }
 
 // Run loads the state, resumes the kernel and serves the control socket
@@ -68,6 +70,7 @@ func Run(configPath string) error {
 		return err
 	}
 	go ipc.Serve(ln, d.handle)
+	go d.watchReload()
 	logx.Info("daemon ready, socket %s", ipc.SocketPath)
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
@@ -115,6 +118,8 @@ func open(ctx context.Context, configPath string) (*Daemon, error) {
 		logx.Info("created %s", configPath)
 	}
 	d.st = st
+	d.profileMTime = map[string]time.Time{}
+	d.stampAll()
 	if st.Active != "" {
 		if err := d.applyProfile(st.Active, nil); err != nil {
 			logx.Warn("resume %s failed: %v", st.Active, err)
@@ -126,6 +131,7 @@ func open(ctx context.Context, configPath string) (*Daemon, error) {
 func (d *Daemon) handle(req ipc.Request, report func(string)) ipc.Response {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	d.reloadLocked()
 	var err error
 	switch req.Command {
 	case ipc.CmdStatus:
@@ -215,7 +221,7 @@ func (d *Daemon) add(rawURL string, report func(string)) error {
 		Traffic:   traffic,
 	})
 	logx.Info("added %s", name)
-	return state.Save(d.configPath, d.st)
+	return d.saveState()
 }
 
 func (d *Daemon) sync(name string, report func(string)) error {
@@ -246,7 +252,7 @@ func (d *Daemon) sync(name string, report func(string)) error {
 		}
 	}
 	logx.Info("synced %s", name)
-	return state.Save(d.configPath, d.st)
+	return d.saveState()
 }
 
 func (d *Daemon) delete(name string) error {
@@ -263,7 +269,7 @@ func (d *Daemon) delete(name string) error {
 	os.Remove(state.ProfilePath(d.configPath, name))
 	d.st.Profiles = append(d.st.Profiles[:i], d.st.Profiles[i+1:]...)
 	logx.Info("deleted %s", name)
-	return state.Save(d.configPath, d.st)
+	return d.saveState()
 }
 
 func (d *Daemon) activate(name string, report func(string)) error {
@@ -275,7 +281,7 @@ func (d *Daemon) activate(name string, report func(string)) error {
 	}
 	d.st.Active = name
 	logx.Info("activated %s", name)
-	return state.Save(d.configPath, d.st)
+	return d.saveState()
 }
 
 // selectNode switches every selectable group that carries the node and
@@ -288,7 +294,7 @@ func (d *Daemon) saveUI(sortParam, pageParam string) error {
 	if v, err := strconv.Atoi(pageParam); err == nil {
 		d.st.Page = v
 	}
-	return state.Save(d.configPath, d.st)
+	return d.saveState()
 }
 
 func (d *Daemon) selectNode(name, node string) error {
@@ -322,7 +328,7 @@ func (d *Daemon) selectNode(name, node string) error {
 		return fmt.Errorf("node %s not found in profile %s", node, name)
 	}
 	logx.Info("selected %s in %s for %d groups", node, name, changed)
-	return state.Save(d.configPath, d.st)
+	return d.saveState()
 }
 
 // containsNode reports whether the node is one of the names.
@@ -395,7 +401,7 @@ func (d *Daemon) start() error {
 	d.running = true
 	d.st.Enabled = true
 	logx.Info("kernel listening on %d", d.st.Port)
-	return state.Save(d.configPath, d.st)
+	return d.saveState()
 }
 
 func (d *Daemon) stop() error {
@@ -403,7 +409,7 @@ func (d *Daemon) stop() error {
 	d.running = false
 	d.st.Enabled = false
 	logx.Info("kernel stopped")
-	return state.Save(d.configPath, d.st)
+	return d.saveState()
 }
 
 func (d *Daemon) applyProfile(name string, report func(string)) error {
@@ -486,7 +492,101 @@ func (d *Daemon) writeProfile(name string, data []byte) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(dir, name+".yaml"), data, 0o644)
+	path := state.ProfilePath(d.configPath, name)
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		return err
+	}
+	d.profileMTime[name] = fileMTime(path)
+	return nil
+}
+
+// saveState writes the state file and remembers its stamp so px's own
+// writes are not treated as outside edits.
+func (d *Daemon) saveState() error {
+	if err := state.Save(d.configPath, d.st); err != nil {
+		return err
+	}
+	d.stMTime = fileMTime(d.configPath)
+	return nil
+}
+
+// stampAll records the current file stamps of the state file and every
+// profile body.
+func (d *Daemon) stampAll() {
+	d.stMTime = fileMTime(d.configPath)
+	for _, p := range d.st.Profiles {
+		path := state.ProfilePath(d.configPath, p.Name)
+		d.profileMTime[p.Name] = fileMTime(path)
+	}
+}
+
+// fileMTime returns the modification time of a file, zero when missing.
+func fileMTime(path string) time.Time {
+	if st, err := os.Stat(path); err == nil {
+		return st.ModTime()
+	}
+	return time.Time{}
+}
+
+// watchReload polls the config file and the profile bodies for edits made
+// outside px and reloads them into the kernel.
+func (d *Daemon) watchReload() {
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-d.ctx.Done():
+			return
+		case <-ticker.C:
+			d.mu.Lock()
+			d.reloadLocked()
+			d.mu.Unlock()
+		}
+	}
+}
+
+// reloadLocked reloads outside edits so the kernel and the state follow
+// whatever the user saved on disk.
+func (d *Daemon) reloadLocked() {
+	if t := fileMTime(d.configPath); !t.Equal(d.stMTime) {
+		st, err := state.Load(d.configPath)
+		if err != nil {
+			logx.Warn("reload %s failed: %v", d.configPath, err)
+		} else {
+			d.st = st
+			d.stMTime = t
+			logx.Info("state reloaded from %s", d.configPath)
+			if err := d.syncKernel(); err != nil {
+				logx.Warn("sync kernel failed: %v", err)
+			}
+		}
+	}
+	for _, p := range d.st.Profiles {
+		path := state.ProfilePath(d.configPath, p.Name)
+		t := fileMTime(path)
+		if t.Equal(d.profileMTime[p.Name]) {
+			continue
+		}
+		d.profileMTime[p.Name] = t
+		if p.Name == d.st.Active {
+			if err := d.applyProfile(p.Name, nil); err != nil {
+				logx.Warn("reload profile %s failed: %v", p.Name, err)
+			} else {
+				logx.Info("profile %s reloaded", p.Name)
+			}
+		}
+	}
+}
+
+// syncKernel re-applies the active profile so the kernel matches the
+// state file after an outside edit.
+func (d *Daemon) syncKernel() error {
+	if d.st.Active == "" {
+		core.Stop()
+		d.running = false
+		return nil
+	}
+	return d.applyProfile(d.st.Active, nil)
 }
 
 // download fetches a subscription body and reports transfer shares. The
