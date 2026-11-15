@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"px/internal/ipc"
+	"px/internal/state"
 	"px/internal/traffic"
 )
 
@@ -134,7 +135,12 @@ func (h *Home) View() {
 		return
 	}
 
-	boxW := min((w-6)/2, 60)
+	chartCells := h.status.ChartWidth
+	if chartCells <= 0 {
+		chartCells = state.DefaultChartWidth
+	}
+	chartCells = max(20, min(chartCells, 200))
+	boxW := min((w-6)/2, chartCells)
 	blockW := boxW*2 + 1
 	boxX := 1 + max((w-1-blockW)/2, 0)
 	panelH := 6

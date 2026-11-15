@@ -47,6 +47,7 @@ go build -ldflags="-s -w" .
 | --- | --- | --- |
 | `port` | `17890` | 混合 HTTP 与 SOCKS 监听端口 |
 | `delay_url` | `http://www.gstatic.com/generate_204` | 延迟测试目标 |
+| `chart_width` | `50` | 流量图表宽度，20 至 200（含） |
 | `lang` | `en` | 界面语言，`en` 或 `zh` |
 | `sort` | `0` | 节点排序，`0` 按地区，`1` 配置顺序 |
 | `page` | `0` | TUI 打开时的页面，`0` 首页，`1` 配置页 |

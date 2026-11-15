@@ -47,6 +47,7 @@ Everything lives in `~/.config/px/config.json` or `/root/.config/px/config.json`
 | --- | --- | --- |
 | `port` | `17890` | Mixed HTTP and SOCKS listener port |
 | `delay_url` | `http://www.gstatic.com/generate_204` | Latency test target |
+| `chart_width` | `50` | Traffic chart width in cells, 20 to 200 |
 | `lang` | `en` | UI language, `en` or `zh` |
 | `sort` | `0` | Node sort order, `0` region and `1` config order |
 | `page` | `0` | Page the TUI opens on, `0` Home and `1` Profiles |

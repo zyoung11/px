@@ -17,6 +17,10 @@ const DefaultPort = 17890
 // DefaultDelayURL is the latency test target used when the JSON omits it.
 const DefaultDelayURL = "http://www.gstatic.com/generate_204"
 
+// DefaultChartWidth is the traffic chart width in cells used when the JSON
+// omits it.
+const DefaultChartWidth = 50
+
 // UserInfo is the subscription traffic accounting carried by the
 // subscription-userinfo response header, all values in bytes.
 type UserInfo struct {
@@ -41,15 +45,16 @@ type KeyOverrides = keymap.Overrides
 
 // State is the whole JSON document. The daemon is its only writer.
 type State struct {
-	Port     int           `json:"port"`
-	DelayURL string        `json:"delay_url"`
-	Lang     string        `json:"lang"`
-	Sort     int           `json:"sort"`
-	Page     int           `json:"page"`
-	Keys     *KeyOverrides `json:"keys"`
-	Enabled  bool          `json:"enabled"`
-	Active   string        `json:"active"`
-	Profiles []Profile     `json:"profiles"`
+	Port       int           `json:"port"`
+	DelayURL   string        `json:"delay_url"`
+	ChartWidth int           `json:"chart_width"`
+	Lang       string        `json:"lang"`
+	Sort       int           `json:"sort"`
+	Page       int           `json:"page"`
+	Keys       *KeyOverrides `json:"keys"`
+	Enabled    bool          `json:"enabled"`
+	Active     string        `json:"active"`
+	Profiles   []Profile     `json:"profiles"`
 }
 
 // Dir returns the directory that holds the state file and profile files.
@@ -125,6 +130,10 @@ func (st *State) applyDefaults() {
 	if st.DelayURL == "" {
 		st.DelayURL = DefaultDelayURL
 	}
+	if st.ChartWidth <= 0 {
+		st.ChartWidth = DefaultChartWidth
+	}
+	st.ChartWidth = max(20, min(st.ChartWidth, 200))
 	if st.Lang == "" {
 		st.Lang = "en"
 	}

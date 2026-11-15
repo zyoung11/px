@@ -77,18 +77,19 @@ type GroupInfo struct {
 
 // Status is the full state snapshot the daemon returns to the TUI.
 type Status struct {
-	Running  bool                `json:"running"`
-	Tun      bool                `json:"tun"`
-	Port     int                 `json:"port"`
-	Enabled  bool                `json:"enabled"`
-	Active   string              `json:"active"`
-	DelayURL string              `json:"delay_url"`
-	Lang     string              `json:"lang"`
-	Sort     int                 `json:"sort"`
-	Page     int                 `json:"page"`
-	Keys     *state.KeyOverrides `json:"keys"`
-	Profiles []ProfileInfo       `json:"profiles"`
-	Groups   []GroupInfo         `json:"groups"`
+	Running    bool                `json:"running"`
+	Tun        bool                `json:"tun"`
+	Port       int                 `json:"port"`
+	ChartWidth int                 `json:"chart_width"`
+	Enabled    bool                `json:"enabled"`
+	Active     string              `json:"active"`
+	DelayURL   string              `json:"delay_url"`
+	Lang       string              `json:"lang"`
+	Sort       int                 `json:"sort"`
+	Page       int                 `json:"page"`
+	Keys       *state.KeyOverrides `json:"keys"`
+	Profiles   []ProfileInfo       `json:"profiles"`
+	Groups     []GroupInfo         `json:"groups"`
 }
 
 // Handler answers one request and may report interim progress. The

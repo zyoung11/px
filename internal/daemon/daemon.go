@@ -445,18 +445,19 @@ func (d *Daemon) applyProfile(name string, report func(string)) error {
 
 func (d *Daemon) status() ipc.Status {
 	st := ipc.Status{
-		Running:  d.running,
-		Tun:      d.running && core.TunUp(),
-		Port:     d.st.Port,
-		Enabled:  d.st.Enabled,
-		Active:   d.st.Active,
-		DelayURL: d.st.DelayURL,
-		Lang:     d.st.Lang,
-		Sort:     d.st.Sort,
-		Page:     d.st.Page,
-		Keys:     d.st.Keys,
-		Profiles: []ipc.ProfileInfo{},
-		Groups:   []ipc.GroupInfo{},
+		Running:    d.running,
+		Tun:        d.running && core.TunUp(),
+		Port:       d.st.Port,
+		ChartWidth: d.st.ChartWidth,
+		Enabled:    d.st.Enabled,
+		Active:     d.st.Active,
+		DelayURL:   d.st.DelayURL,
+		Lang:       d.st.Lang,
+		Sort:       d.st.Sort,
+		Page:       d.st.Page,
+		Keys:       d.st.Keys,
+		Profiles:   []ipc.ProfileInfo{},
+		Groups:     []ipc.GroupInfo{},
 	}
 	for _, p := range d.st.Profiles {
 		info := ipc.ProfileInfo{
