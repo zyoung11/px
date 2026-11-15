@@ -176,6 +176,9 @@ func DelayProfile(body []byte, names []string, url string, timeout time.Duration
 	var wg sync.WaitGroup
 	var mu2 sync.Mutex
 	for _, name := range names {
+		if name == "DIRECT" {
+			continue
+		}
 		proxy, ok := cfg.Proxies[name]
 		if !ok {
 			continue

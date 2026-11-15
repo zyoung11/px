@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"px/internal/ipc"
+	"px/internal/state"
 )
 
 // messageTTL is how long a footer note stays before the hint line
@@ -38,6 +39,7 @@ type Browser struct {
 	messageErr   bool
 	messageUntil time.Time
 	sortMode     int
+	align        bool
 }
 
 // inputLine is the one line add profile input drawn in BM's search
@@ -64,7 +66,56 @@ func (b *Browser) Init() {
 	b.profiles = status.Profiles
 	b.active = status.Active
 	b.sortMode = status.Sort
+	b.align = status.Align
+	b.restoreBrowse(status.Browse)
 	b.clamp()
+}
+
+// browseState returns the Library page position for the state file.
+func (b *Browser) browseState() state.BrowseState {
+	browse := state.BrowseState{
+		CursorDir:  b.cursorDir,
+		OffsetDir:  b.offsetDir,
+		CursorItem: b.cursorItem,
+		OffsetItem: b.offsetItem,
+		History:    map[string]state.BrowsePos{},
+	}
+	if b.inside {
+		if p, ok := b.currentProfile(); ok {
+			browse.Inside = p.Name
+		}
+	}
+	for name, pos := range b.history {
+		browse.History[name] = state.BrowsePos{Cursor: pos.cursor, Offset: pos.offset}
+	}
+	return browse
+}
+
+// restoreBrowse puts the Library page back to the remembered position.
+// The scroll state and the per profile history only return when the
+// terminal keeps its size.
+func (b *Browser) restoreBrowse(browse state.BrowseState) {
+	b.cursorDir = browse.CursorDir
+	b.cursorItem = browse.CursorItem
+	b.history = map[string]browsePos{}
+	w, h := b.app.terminal().Size()
+	if browse.Width == w && browse.Height == h {
+		b.offsetDir = browse.OffsetDir
+		b.offsetItem = browse.OffsetItem
+		for name, pos := range browse.History {
+			b.history[name] = browsePos{cursor: pos.Cursor, offset: pos.Offset}
+		}
+	}
+	if browse.Inside == "" {
+		return
+	}
+	for _, p := range b.profiles {
+		if p.Name == browse.Inside {
+			b.inside = true
+			b.loadNodes(browse.Inside)
+			return
+		}
+	}
 }
 
 // Modal reports whether the page consumes every key itself.
@@ -106,6 +157,11 @@ func (b *Browser) HandleKey(key rune) {
 		b.syncProfile()
 	case IsKey(key, keymap.Library.Delay):
 		b.testDelay()
+	case IsKey(key, keymap.Library.Align):
+		b.align = !b.align
+		b.clamp()
+		b.app.saveUI()
+		b.View()
 	case IsKey(key, keymap.Library.Sort):
 		b.sortMode = 1 - b.sortMode
 		b.clamp()
@@ -287,6 +343,9 @@ func (b *Browser) delayTarget(profile string) ipc.DelayTarget {
 	nodes := b.sortedNodes(profile)
 	names := make([]string, 0, len(nodes))
 	for _, node := range nodes {
+		if node.Name == "DIRECT" {
+			continue
+		}
 		names = append(names, node.Name)
 	}
 	return ipc.DelayTarget{Profile: profile, Nodes: names}
@@ -573,16 +632,12 @@ func (b *Browser) footer(w, h int) string {
 func (b *Browser) scrollbar(listHeight int) string {
 	w, _ := b.app.terminal().Size()
 	total := len(b.profiles)
-	offset := 0
-	cursor := b.cursorDir
+	offset := b.offsetDir
 	if b.inside {
 		if p, ok := b.currentProfile(); ok {
 			total = len(b.nodes[p.Name].Nodes)
 		}
-		cursor = b.cursorItem
-	}
-	if cursor >= listHeight {
-		offset = cursor - listHeight + 1
+		offset = b.offsetItem
 	}
 	thumbSize := 0
 	thumbStart := 0

@@ -50,6 +50,7 @@ Everything lives in `~/.config/px/config.json` or `/root/.config/px/config.json`
 | `chart_width` | `50` | Traffic chart width in cells, 20 to 200 |
 | `lang` | `en` | UI language, `en` or `zh` |
 | `sort` | `0` | Node sort order, `0` region and `1` config order |
+| `align` | `false` | Aligned node columns |
 | `page` | `0` | Page the TUI opens on, `0` Home and `1` Profiles |
 | `keys` | see below | Keybinding overrides |
 | `profiles` | managed | Subscription entries written by the daemon |
@@ -71,6 +72,7 @@ Defaults below. Every action takes a list of keys and each key may carry `ctrl+`
 | `n` / `r` / `x` | Add, sync or delete a profile |
 | `,` | Toggle the node sort order |
 | `t` | Test the delay of every node in the profile |
+| `.` | Toggle the aligned node columns |
 
 Override example:
 
@@ -88,7 +90,7 @@ Action names:
 | --- | --- |
 | `global` | `Quit` `ShowHelp` `CyclePages` `SwitchToHome` `SwitchToLibrary` |
 | `home` | `ToggleKernel` |
-| `library` | `NavUp` `NavDown` `NavEnterDir` `NavExitDir` `SelectNode` `AddProfile` `SyncProfile` `DeleteProfile` `Sort` `Delay` |
+| `library` | `NavUp` `NavDown` `NavEnterDir` `NavExitDir` `SelectNode` `AddProfile` `SyncProfile` `DeleteProfile` `Sort` `Delay` `Align` |
 | `input` | `ConfirmInput` `EscapeInput` `InputBackspace` `CursorLeft` `CursorRight` |
 
 ## Files

@@ -53,7 +53,7 @@ func (h *Home) Init() {
 func (h *Home) measureDelay() {
 	node := h.nodes.Selected
 	profile := h.status.Active
-	if node == "" || profile == "" || h.app.delayOf(profile, node) >= 0 {
+	if node == "" || node == "DIRECT" || profile == "" || h.app.delayOf(profile, node) >= 0 {
 		return
 	}
 	target := []ipc.DelayTarget{{Profile: profile, Nodes: []string{node}}}

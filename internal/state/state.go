@@ -43,6 +43,24 @@ type Profile struct {
 // shape the config file stores.
 type KeyOverrides = keymap.Overrides
 
+// BrowsePos is the remembered list position of one profile.
+type BrowsePos struct {
+	Cursor int `json:"cursor"`
+	Offset int `json:"offset"`
+}
+
+// BrowseState is the remembered position of the Library page.
+type BrowseState struct {
+	Inside     string               `json:"inside,omitempty"`
+	Width      int                  `json:"width"`
+	Height     int                  `json:"height"`
+	CursorDir  int                  `json:"cursor_dir"`
+	OffsetDir  int                  `json:"offset_dir"`
+	CursorItem int                  `json:"cursor_item"`
+	OffsetItem int                  `json:"offset_item"`
+	History    map[string]BrowsePos `json:"history,omitempty"`
+}
+
 // State is the whole JSON document. The daemon is its only writer.
 type State struct {
 	Port       int           `json:"port"`
@@ -50,6 +68,8 @@ type State struct {
 	ChartWidth int           `json:"chart_width"`
 	Lang       string        `json:"lang"`
 	Sort       int           `json:"sort"`
+	Align      bool          `json:"align"`
+	Browse     BrowseState   `json:"browse"`
 	Page       int           `json:"page"`
 	Keys       *KeyOverrides `json:"keys"`
 	Enabled    bool          `json:"enabled"`
@@ -142,5 +162,8 @@ func (st *State) applyDefaults() {
 	}
 	if st.Profiles == nil {
 		st.Profiles = []Profile{}
+	}
+	if st.Browse.History == nil {
+		st.Browse.History = map[string]BrowsePos{}
 	}
 }

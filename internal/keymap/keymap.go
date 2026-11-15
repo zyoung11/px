@@ -38,6 +38,7 @@ type LibraryKeymap struct {
 	DeleteProfile Key
 	Sort          Key
 	Delay         Key
+	Align         Key
 	Input         InputModeKeymap
 }
 
@@ -82,6 +83,7 @@ func DefaultKeymap() Keymap {
 			DeleteProfile: Key{"x"},
 			Sort:          Key{","},
 			Delay:         Key{"t"},
+			Align:         Key{"."},
 			Input: InputModeKeymap{
 				ConfirmInput:   Key{"enter"},
 				EscapeInput:    Key{"esc"},
@@ -127,6 +129,7 @@ func AsOverrides(k Keymap) *Overrides {
 			"DeleteProfile": k.Library.DeleteProfile,
 			"Sort":          k.Library.Sort,
 			"Delay":         k.Library.Delay,
+			"Align":         k.Library.Align,
 		},
 		Input: map[string][]string{
 			"ConfirmInput":   k.Library.Input.ConfirmInput,
@@ -165,6 +168,7 @@ func Merge(k Keymap, o *Overrides) Keymap {
 	set(&k.Library.DeleteProfile, o.Library["DeleteProfile"])
 	set(&k.Library.Sort, o.Library["Sort"])
 	set(&k.Library.Delay, o.Library["Delay"])
+	set(&k.Library.Align, o.Library["Align"])
 	set(&k.Library.Input.ConfirmInput, o.Input["ConfirmInput"])
 	set(&k.Library.Input.EscapeInput, o.Input["EscapeInput"])
 	set(&k.Library.Input.InputBackspace, o.Input["InputBackspace"])

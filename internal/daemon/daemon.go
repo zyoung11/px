@@ -159,7 +159,7 @@ func (d *Daemon) handle(req ipc.Request, report func(string)) ipc.Response {
 	case ipc.CmdTraffic:
 		return okResponse(d.traffic.Snapshot())
 	case ipc.CmdUI:
-		err = d.saveUI(req.Params["sort"], req.Params["page"])
+		err = d.saveUI(req.Params["sort"], req.Params["page"], req.Params["align"], req.Params["browse"])
 	case ipc.CmdStart:
 		err = d.start()
 	case ipc.CmdStop:
@@ -289,12 +289,21 @@ func (d *Daemon) activate(name string, report func(string)) error {
 // selectNode switches every selectable group that carries the node and
 // records the choice per group.
 // saveUI records the TUI preferences in the state file.
-func (d *Daemon) saveUI(sortParam, pageParam string) error {
+func (d *Daemon) saveUI(sortParam, pageParam, alignParam, browseParam string) error {
 	if v, err := strconv.Atoi(sortParam); err == nil {
 		d.st.Sort = v
 	}
 	if v, err := strconv.Atoi(pageParam); err == nil {
 		d.st.Page = v
+	}
+	if v, err := strconv.Atoi(alignParam); err == nil {
+		d.st.Align = v == 1
+	}
+	if browseParam != "" {
+		var browse state.BrowseState
+		if err := json.Unmarshal([]byte(browseParam), &browse); err == nil {
+			d.st.Browse = browse
+		}
 	}
 	return d.saveState()
 }
@@ -478,6 +487,8 @@ func (d *Daemon) status() ipc.Status {
 		DelayURL:   d.st.DelayURL,
 		Lang:       d.st.Lang,
 		Sort:       d.st.Sort,
+		Align:      d.st.Align,
+		Browse:     d.st.Browse,
 		Page:       d.st.Page,
 		Keys:       d.st.Keys,
 		Profiles:   []ipc.ProfileInfo{},

@@ -1,13 +1,16 @@
 package tui
 
-import "strings"
+import (
+	"strings"
 
-// Profile name width limit before an ellipsis cuts the rest off, the
-// narrowest readable preview column and the widest any column grows.
+	"px/internal/ipc"
+)
+
+// Profile name width limit before an ellipsis cuts the rest off and the
+// narrowest readable preview column.
 const (
-	profileNameCells = 12
+	profileNameCells = 15
 	previewMinWidth  = 15
-	columnMaxWidth   = 44
 )
 
 // entry is one column row before width fitting.
@@ -16,6 +19,9 @@ type entry struct {
 	proto    string
 	mark     string
 	delayMs  int
+	nameW    int
+	protoW   int
+	delayW   int
 	dir      bool
 	selected bool
 	cursor   bool
@@ -37,6 +43,13 @@ type columnGeometry struct {
 func entryWidth(e entry) int {
 	if e.dir {
 		return displayWidth(e.mark + cutName(e.name, profileNameCells) + "/")
+	}
+	if e.nameW > 0 {
+		w := displayWidth(e.mark) + e.nameW + 2 + e.protoW
+		if e.delayW > 0 {
+			w += 2 + e.delayW
+		}
+		return w
 	}
 	if e.proto == "" {
 		return displayWidth(e.mark + e.name)
@@ -60,6 +73,8 @@ func fitEntry(e entry, width int) (string, string) {
 	line := ""
 	if e.dir {
 		line = e.mark + cutName(e.name, profileNameCells) + "/"
+	} else if e.nameW > 0 {
+		line = fitAlignedEntry(e, width)
 	} else {
 		mark := displayWidth(e.mark)
 		suffix := protoSuffix(e.proto, e.cursor) + delaySuffix(e.delayMs, e.cursor)
@@ -94,6 +109,62 @@ func delaySuffix(delayMs int, highlight bool) string {
 		return "  " + text
 	}
 	return "  " + delayColor(delayMs) + text
+}
+
+// fitAlignedEntry renders one node row as fixed columns so the protocol
+// and the delay line up across rows. Every row trims the name by the same
+// width so the columns never shift, and the name gives way before the tags
+// do.
+func fitAlignedEntry(e entry, width int) string {
+	mark := displayWidth(e.mark)
+	suffixW := 2 + e.protoW
+	if e.delayW > 0 {
+		suffixW += 2 + e.delayW
+	}
+	nameW := min(e.nameW, max(width-mark-suffixW, 0))
+	name := cutEllipsis(e.name, nameW)
+	if nameW < 3 {
+		name = truncateToWidthFromStart(e.name, nameW)
+	}
+	protoCell := fit(e.proto, e.protoW)
+	delayCell := ""
+	if e.delayMs >= 0 {
+		delayCell = fit(delayText(e.delayMs), e.delayW)
+	}
+	if e.cursor {
+		line := e.mark + fit(name, nameW) + "  " + protoCell
+		if e.delayW > 0 {
+			line += "  " + delayCell
+		}
+		return line
+	}
+	line := e.mark + fit(name, nameW) + "  "
+	if e.proto != "" {
+		line += protoColor(e.proto)
+	}
+	line += protoCell
+	if e.delayW > 0 {
+		line += "  "
+		if e.delayMs >= 0 {
+			line += delayColor(e.delayMs)
+		}
+		line += delayCell
+	}
+	return line
+}
+
+// alignColumns returns the widest node name, protocol and delay text of
+// one list for the aligned row layout.
+func alignColumns(nodes []ipc.NodeInfo, delays map[string]uint16) (int, int, int) {
+	nameW, protoW, delayW := 0, 0, 0
+	for _, node := range nodes {
+		nameW = max(nameW, displayWidth(node.Name))
+		protoW = max(protoW, displayWidth(node.Type))
+		if ms, ok := delays[node.Name]; ok {
+			delayW = max(delayW, displayWidth(delayText(int(ms))))
+		}
+	}
+	return nameW, protoW, delayW
 }
 
 // protoSuffix renders the protocol tag, plain on highlighted rows so the
@@ -192,7 +263,12 @@ func (b *Browser) planColumns(w, listHeight int) []columnGeometry {
 		nodeCol := columnGeometry{cursor: -1, offset: b.offsetItem}
 		name, _ := b.currentProfile()
 		info := b.nodes[name.Name]
-		for i, node := range b.sortedNodes(name.Name) {
+		nodes := b.sortedNodes(name.Name)
+		nameW, protoW, delayW := 0, 0, 0
+		if b.align {
+			nameW, protoW, delayW = alignColumns(nodes, b.app.delays[name.Name])
+		}
+		for i, node := range nodes {
 			cursor := i == b.cursorItem
 			selected := name.Name == b.active && node.Name == info.Selected
 			mark := "  "
@@ -201,6 +277,7 @@ func (b *Browser) planColumns(w, listHeight int) []columnGeometry {
 			}
 			nodeCol.entries = append(nodeCol.entries, entry{
 				name: node.Name, proto: node.Type, mark: mark, delayMs: b.app.delayOf(name.Name, node.Name),
+				nameW: nameW, protoW: protoW, delayW: delayW,
 				selected: selected, cursor: cursor,
 			})
 			if cursor {
@@ -212,6 +289,10 @@ func (b *Browser) planColumns(w, listHeight int) []columnGeometry {
 		info := b.nodes[p.Name]
 		preview := columnGeometry{cursor: -1, dim: true, preview: true}
 		saved := b.history[p.Name]
+		previewNameW, previewProtoW, previewDelayW := 0, 0, 0
+		if b.align {
+			previewNameW, previewProtoW, previewDelayW = alignColumns(b.sortedNodes(p.Name), b.app.delays[p.Name])
+		}
 		cursor := clampPos(saved.cursor, len(info.Nodes))
 		offset := min(saved.offset, cursor)
 		if cursor >= offset+listHeight {
@@ -226,6 +307,7 @@ func (b *Browser) planColumns(w, listHeight int) []columnGeometry {
 			}
 			preview.entries = append(preview.entries, entry{
 				name: node.Name, proto: node.Type, mark: mark, delayMs: b.app.delayOf(p.Name, node.Name),
+				nameW: previewNameW, protoW: previewProtoW, delayW: previewDelayW,
 				selected: selected,
 			})
 		}
@@ -250,7 +332,6 @@ func (b *Browser) planColumns(w, listHeight int) []columnGeometry {
 				width = 0
 			}
 		}
-		width = min(width, columnMaxWidth)
 		if width < 1 {
 			cols[i].width = 0
 			continue

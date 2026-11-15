@@ -94,6 +94,8 @@ type Status struct {
 	DelayURL   string              `json:"delay_url"`
 	Lang       string              `json:"lang"`
 	Sort       int                 `json:"sort"`
+	Align      bool                `json:"align"`
+	Browse     state.BrowseState   `json:"browse"`
 	Page       int                 `json:"page"`
 	Keys       *state.KeyOverrides `json:"keys"`
 	Profiles   []ProfileInfo       `json:"profiles"`

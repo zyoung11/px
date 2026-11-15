@@ -50,6 +50,7 @@ go build -ldflags="-s -w" .
 | `chart_width` | `50` | 流量图表宽度，20 至 200（含） |
 | `lang` | `en` | 界面语言，`en` 或 `zh` |
 | `sort` | `0` | 节点排序，`0` 按地区，`1` 配置顺序 |
+| `align` | `false` | 节点列对齐 |
 | `page` | `0` | TUI 打开时的页面，`0` 首页，`1` 配置页 |
 | `keys` | 见下 | 快捷键覆盖 |
 | `profiles` | 自动管理 | 守护进程写入的订阅条目 |
@@ -71,6 +72,7 @@ go build -ldflags="-s -w" .
 | `n` / `r` / `x` | 添加、同步、删除配置 |
 | `,` | 切换节点排序 |
 | `t` | 测速当前配置的所有节点 |
+| `.` | 切换节点列对齐 |
 
 覆盖示例：
 
@@ -88,7 +90,7 @@ go build -ldflags="-s -w" .
 | --- | --- |
 | `global` | `Quit` `ShowHelp` `CyclePages` `SwitchToHome` `SwitchToLibrary` |
 | `home` | `ToggleKernel` |
-| `library` | `NavUp` `NavDown` `NavEnterDir` `NavExitDir` `SelectNode` `AddProfile` `SyncProfile` `DeleteProfile` `Sort` `Delay` |
+| `library` | `NavUp` `NavDown` `NavEnterDir` `NavExitDir` `SelectNode` `AddProfile` `SyncProfile` `DeleteProfile` `Sort` `Delay` `Align` |
 | `input` | `ConfirmInput` `EscapeInput` `InputBackspace` `CursorLeft` `CursorRight` |
 
 ## 文件

@@ -184,6 +184,7 @@ func Run() error {
 			}
 		}
 	}
+	app.saveUI()
 	return nil
 }
 
@@ -261,15 +262,28 @@ func (a *App) switchToPage(index int) {
 	a.pages[a.current].View()
 }
 
-// saveUI stores the sort mode and the active page in the state file.
+// saveUI stores the sort mode, the align mode, the browse position and
+// the active page in the state file.
 func (a *App) saveUI() {
 	sortMode := 0
+	align := 0
+	browse := ""
 	if browser, ok := a.pages[1].(*Browser); ok {
 		sortMode = browser.sortMode
+		if browser.align {
+			align = 1
+		}
+		pos := browser.browseState()
+		pos.Width, pos.Height = a.term.Size()
+		if data, err := json.Marshal(pos); err == nil {
+			browse = string(data)
+		}
 	}
 	_ = command(ipc.CmdUI, map[string]string{
-		"sort": itoa(sortMode),
-		"page": itoa(a.current),
+		"sort":   itoa(sortMode),
+		"page":   itoa(a.current),
+		"align":  itoa(align),
+		"browse": browse,
 	})
 }
 
