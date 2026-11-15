@@ -104,6 +104,8 @@ func (b *Browser) HandleKey(key rune) {
 		b.drawFooterOnly()
 	case IsKey(key, keymap.Library.SyncProfile):
 		b.syncProfile()
+	case IsKey(key, keymap.Library.Delay):
+		b.testDelay()
 	case IsKey(key, keymap.Library.Sort):
 		b.sortMode = 1 - b.sortMode
 		b.clamp()
@@ -255,6 +257,41 @@ func (b *Browser) selectNode() {
 
 // syncProfile re-downloads the profile under the cursor and reports the
 // traffic accounting the subscription advertises.
+// testDelay measures the latency of every node of the profile under the
+// cursor, or of every profile when the cursor sits on the list root.
+func (b *Browser) testDelay() {
+	targets := []ipc.DelayTarget{}
+	if b.inside {
+		if p, ok := b.currentProfile(); ok {
+			targets = append(targets, b.delayTarget(p.Name))
+		}
+	} else {
+		for _, p := range b.profiles {
+			targets = append(targets, b.delayTarget(p.Name))
+		}
+	}
+	if len(targets) == 0 {
+		return
+	}
+	b.app.runDelay(targets, func(err error) {
+		if err != nil {
+			b.setMessage(err.Error(), true)
+		}
+		b.View()
+	})
+}
+
+// delayTarget collects the node names of one profile for a delay request.
+func (b *Browser) delayTarget(profile string) ipc.DelayTarget {
+	b.loadNodes(profile)
+	nodes := b.sortedNodes(profile)
+	names := make([]string, 0, len(nodes))
+	for _, node := range nodes {
+		names = append(names, node.Name)
+	}
+	return ipc.DelayTarget{Profile: profile, Nodes: names}
+}
+
 func (b *Browser) syncProfile() {
 	p, ok := b.currentProfile()
 	if !ok {
@@ -405,6 +442,7 @@ func (b *Browser) hintLine() string {
 		hintItem(hintKeys(keymap.Library.AddProfile), txtHintAdd),
 		hintItem(hintKeys(keymap.Library.DeleteProfile), txtHintDelete),
 		hintItem(hintKeys(keymap.Library.SyncProfile), txtHintSync),
+		hintItem(hintKeys(keymap.Library.Delay), txtHintDelay),
 		hintItem(hintKeys(keymap.Global.ShowHelp), txtHintHelp),
 	)
 }

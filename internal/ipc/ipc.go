@@ -15,18 +15,19 @@ const SocketPath = "/tmp/px.sock"
 
 // Command names accepted by the daemon.
 const (
-	CmdStatus   = "status"
-	CmdAdd      = "add"
-	CmdSync     = "sync"
-	CmdDelete   = "delete"
-	CmdActivate = "activate"
-	CmdSelect   = "select"
-	CmdDelay    = "delay"
-	CmdNodes    = "nodes"
-	CmdTraffic  = "traffic"
-	CmdUI       = "ui"
-	CmdStart    = "start"
-	CmdStop     = "stop"
+	CmdStatus     = "status"
+	CmdAdd        = "add"
+	CmdSync       = "sync"
+	CmdDelete     = "delete"
+	CmdActivate   = "activate"
+	CmdSelect     = "select"
+	CmdDelay      = "delay"
+	CmdDelayNodes = "delay-nodes"
+	CmdNodes      = "nodes"
+	CmdTraffic    = "traffic"
+	CmdUI         = "ui"
+	CmdStart      = "start"
+	CmdStop       = "stop"
 )
 
 // Request is one newline framed command from the TUI to the daemon.
@@ -43,6 +44,13 @@ type Response struct {
 	Error    string          `json:"error"`
 	Progress string          `json:"progress,omitempty"`
 	Data     json.RawMessage `json:"data,omitempty"`
+}
+
+// DelayTarget is one profile and the node names to test in one delay
+// request.
+type DelayTarget struct {
+	Profile string   `json:"profile"`
+	Nodes   []string `json:"nodes"`
 }
 
 // ProfileInfo is one subscription entry in a status snapshot.

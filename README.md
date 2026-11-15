@@ -70,6 +70,7 @@ Defaults below. Every action takes a list of keys and each key may carry `ctrl+`
 | `l` `d` `right` / `h` `a` `left` | Enter or leave a profile |
 | `n` / `r` / `x` | Add, sync or delete a profile |
 | `,` | Toggle the node sort order |
+| `t` | Test the delay of every node in the profile |
 
 Override example:
 
@@ -87,7 +88,7 @@ Action names:
 | --- | --- |
 | `global` | `Quit` `ShowHelp` `CyclePages` `SwitchToHome` `SwitchToLibrary` |
 | `home` | `ToggleKernel` |
-| `library` | `NavUp` `NavDown` `NavEnterDir` `NavExitDir` `SelectNode` `AddProfile` `SyncProfile` `DeleteProfile` `Sort` |
+| `library` | `NavUp` `NavDown` `NavEnterDir` `NavExitDir` `SelectNode` `AddProfile` `SyncProfile` `DeleteProfile` `Sort` `Delay` |
 | `input` | `ConfirmInput` `EscapeInput` `InputBackspace` `CursorLeft` `CursorRight` |
 
 ## Files

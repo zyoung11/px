@@ -148,6 +148,8 @@ func (d *Daemon) handle(req ipc.Request, report func(string)) ipc.Response {
 		err = d.selectNode(req.Params["name"], req.Params["node"])
 	case ipc.CmdDelay:
 		return d.delay(req.Params["group"])
+	case ipc.CmdDelayNodes:
+		return d.delayNodes(req.Params["targets"])
 	case ipc.CmdNodes:
 		info, nerr := d.nodesInfo(req.Params["name"])
 		if nerr != nil {
@@ -382,6 +384,28 @@ func (d *Daemon) delay(group string) ipc.Response {
 		return ipc.Response{OK: false, Error: err.Error()}
 	}
 	return okResponse(result)
+}
+
+// delayNodes tests the latency of the requested nodes of every profile and
+// returns one table per profile.
+func (d *Daemon) delayNodes(targetsParam string) ipc.Response {
+	var targets []ipc.DelayTarget
+	if err := json.Unmarshal([]byte(targetsParam), &targets); err != nil {
+		return ipc.Response{OK: false, Error: "targets must be a JSON list"}
+	}
+	if len(targets) == 0 {
+		return ipc.Response{OK: false, Error: "targets is required"}
+	}
+	out := map[string]map[string]uint16{}
+	for _, target := range targets {
+		body, err := os.ReadFile(state.ProfilePath(d.configPath, target.Profile))
+		if err != nil {
+			out[target.Profile] = map[string]uint16{}
+			continue
+		}
+		out[target.Profile] = core.DelayProfile(body, target.Nodes, d.st.DelayURL, core.DelayTimeout)
+	}
+	return okResponse(out)
 }
 
 func (d *Daemon) start() error {

@@ -32,6 +32,32 @@ const (
 	colDownload = "\x1b[38;2;138;173;244m"
 )
 
+// delayText renders one latency value for display.
+func delayText(ms int) string {
+	switch {
+	case ms < 0:
+		return "-"
+	case ms == 0:
+		return t(txtTimeout)
+	default:
+		return itoa(ms) + " ms"
+	}
+}
+
+// delayColor returns the display color of one latency value.
+func delayColor(ms int) string {
+	switch {
+	case ms <= 0:
+		return "\x1b[38;2;110;115;141m"
+	case ms < 100:
+		return colGreen
+	case ms < 300:
+		return "\x1b[38;2;238;212;159m"
+	default:
+		return "\x1b[38;2;237;135;150m"
+	}
+}
+
 // UI strings in English and Chinese.
 var (
 	txtHelpTitle    = uiText{"Keyboard Shortcuts", "快捷键"}
@@ -52,8 +78,10 @@ var (
 	txtHintDelete = uiText{"delete", "删除"}
 	txtHintSync   = uiText{"sync", "同步"}
 	txtHintHelp   = uiText{"help", "帮助"}
+	txtHintDelay  = uiText{"delay", "测速"}
 
 	txtLoading         = uiText{"Loading", "加载中"}
+	txtDelayBusy       = uiText{"Testing delay", "测速中"}
 	txtTraffic         = uiText{"Traffic ", "流量 "}
 	txtSort            = uiText{"Sort ", "排序 "}
 	txtTooSmallBrowse  = uiText{"Terminal too small to browse", "终端过小，无法浏览"}
@@ -62,6 +90,8 @@ var (
 	txtProfile      = uiText{"Profile", "配置"}
 	txtNode         = uiText{"Node", "节点"}
 	txtTrafficLabel = uiText{"Usage", "用量"}
+	txtDelayLabel   = uiText{"Delay", "延迟"}
+	txtTimeout      = uiText{"timeout", "超时"}
 	txtPort         = uiText{"Port", "端口"}
 	txtRunning      = uiText{"Running", "运行中"}
 	txtStopped      = uiText{"Stopped", "已停止"}

@@ -70,6 +70,7 @@ go build -ldflags="-s -w" .
 | `l` `d` `right` / `h` `a` `left` | 进出配置 |
 | `n` / `r` / `x` | 添加、同步、删除配置 |
 | `,` | 切换节点排序 |
+| `t` | 测速当前配置的所有节点 |
 
 覆盖示例：
 
@@ -87,7 +88,7 @@ go build -ldflags="-s -w" .
 | --- | --- |
 | `global` | `Quit` `ShowHelp` `CyclePages` `SwitchToHome` `SwitchToLibrary` |
 | `home` | `ToggleKernel` |
-| `library` | `NavUp` `NavDown` `NavEnterDir` `NavExitDir` `SelectNode` `AddProfile` `SyncProfile` `DeleteProfile` `Sort` |
+| `library` | `NavUp` `NavDown` `NavEnterDir` `NavExitDir` `SelectNode` `AddProfile` `SyncProfile` `DeleteProfile` `Sort` `Delay` |
 | `input` | `ConfirmInput` `EscapeInput` `InputBackspace` `CursorLeft` `CursorRight` |
 
 ## 文件

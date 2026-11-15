@@ -158,6 +158,44 @@ func Delay(group, url string, timeout time.Duration) (map[string]uint16, error) 
 	return target.URLTest(ctx, url, nil)
 }
 
+// DelayProfile tests the named nodes of one profile body and returns
+// latency in milliseconds. A zero value marks a timeout or a failed test.
+func DelayProfile(body []byte, names []string, url string, timeout time.Duration) map[string]uint16 {
+	out := make(map[string]uint16, len(names))
+	cfg, err := parse(body)
+	if err != nil {
+		return out
+	}
+	defer func() {
+		for _, proxy := range cfg.Proxies {
+			_ = proxy.Close()
+		}
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	var wg sync.WaitGroup
+	var mu2 sync.Mutex
+	for _, name := range names {
+		proxy, ok := cfg.Proxies[name]
+		if !ok {
+			continue
+		}
+		wg.Add(1)
+		go func(name string, proxy constant.Proxy) {
+			defer wg.Done()
+			ms, err := proxy.URLTest(ctx, url, nil)
+			if err != nil {
+				ms = 0
+			}
+			mu2.Lock()
+			out[name] = ms
+			mu2.Unlock()
+		}(name, proxy)
+	}
+	wg.Wait()
+	return out
+}
+
 // parse converts profile bytes into a kernel config and fills the DNS
 // baseline a profile may leave out.
 func parse(data []byte) (*config.Config, error) {

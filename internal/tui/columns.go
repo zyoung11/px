@@ -15,6 +15,7 @@ type entry struct {
 	name     string
 	proto    string
 	mark     string
+	delayMs  int
 	dir      bool
 	selected bool
 	cursor   bool
@@ -61,14 +62,19 @@ func fitEntry(e entry, width int) (string, string) {
 		line = e.mark + cutName(e.name, profileNameCells) + "/"
 	} else {
 		mark := displayWidth(e.mark)
-		proto := displayWidth(e.proto)
+		suffix := protoSuffix(e.proto, e.cursor) + delaySuffix(e.delayMs, e.cursor)
+		suffixW := visibleWidth(suffix)
 		switch {
-		case e.proto == "" || displayWidth(e.mark+e.name)+2+proto <= width:
-			line = e.mark + e.name + protoSuffix(e.proto, e.cursor)
-		case proto*2 >= width || width-mark-2-proto < 3:
-			line = e.mark + cutEllipsis(e.name, width-mark)
+		case suffix == "" || displayWidth(e.mark+e.name)+suffixW <= width:
+			line = e.mark + e.name + suffix
+		case width-mark-suffixW < 3:
+			if suffix != "" && width-mark >= suffixW {
+				line = e.mark + suffix
+			} else {
+				line = e.mark + cutEllipsis(e.name, width-mark)
+			}
 		default:
-			line = e.mark + cutEllipsis(e.name, width-mark-2-proto) + protoSuffix(e.proto, e.cursor)
+			line = e.mark + cutEllipsis(e.name, width-mark-suffixW) + suffix
 		}
 	}
 	if e.cursor {
@@ -77,8 +83,21 @@ func fitEntry(e entry, width int) (string, string) {
 	return line, style
 }
 
-// protoSuffix renders the protocol tag, plain on highlighted rows so
-// the highlight keeps one color.
+// delaySuffix renders the latency tag of one node row, plain on
+// highlighted rows so the highlight keeps one color.
+func delaySuffix(delayMs int, highlight bool) string {
+	if delayMs < 0 {
+		return ""
+	}
+	text := delayText(delayMs)
+	if highlight {
+		return "  " + text
+	}
+	return "  " + delayColor(delayMs) + text
+}
+
+// protoSuffix renders the protocol tag, plain on highlighted rows so the
+// highlight keeps one color.
 func protoSuffix(proto string, highlight bool) string {
 	if proto == "" {
 		return ""
@@ -86,7 +105,7 @@ func protoSuffix(proto string, highlight bool) string {
 	if highlight {
 		return "  " + proto
 	}
-	return "  " + protoColor(proto) + proto + "\x1b[0m"
+	return "  " + protoColor(proto) + proto
 }
 
 // cutEllipsis shortens plain text to the width and marks the cut with an
@@ -181,7 +200,7 @@ func (b *Browser) planColumns(w, listHeight int) []columnGeometry {
 				mark = "✓ "
 			}
 			nodeCol.entries = append(nodeCol.entries, entry{
-				name: node.Name, proto: node.Type, mark: mark,
+				name: node.Name, proto: node.Type, mark: mark, delayMs: b.app.delayOf(name.Name, node.Name),
 				selected: selected, cursor: cursor,
 			})
 			if cursor {
@@ -206,7 +225,7 @@ func (b *Browser) planColumns(w, listHeight int) []columnGeometry {
 				mark = "✓ "
 			}
 			preview.entries = append(preview.entries, entry{
-				name: node.Name, proto: node.Type, mark: mark,
+				name: node.Name, proto: node.Type, mark: mark, delayMs: b.app.delayOf(p.Name, node.Name),
 				selected: selected,
 			})
 		}

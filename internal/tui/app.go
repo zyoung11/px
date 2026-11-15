@@ -48,6 +48,7 @@ type App struct {
 	quit        bool
 	tick        int
 	message     string
+	delays      map[string]map[string]uint16
 }
 
 // showConfirm draws the modal confirmation box and remembers its content
@@ -134,7 +135,7 @@ func Run() error {
 
 	setLang(status.Lang)
 	setKeymap(status.Keys)
-	app := &App{term: term, events: make(chan event, 16)}
+	app := &App{term: term, events: make(chan event, 16), delays: map[string]map[string]uint16{}}
 	home := NewHome(app, status)
 	browser := NewBrowser(app)
 	app.pages = []Page{home, browser}
@@ -270,6 +271,63 @@ func (a *App) saveUI() {
 		"sort": itoa(sortMode),
 		"page": itoa(a.current),
 	})
+}
+
+// delayOf returns the latency of one node in milliseconds, or -1 when the
+// node has no measurement yet.
+func (a *App) delayOf(profile, node string) int {
+	ms, ok := a.delays[profile][node]
+	if !ok {
+		return -1
+	}
+	return int(ms)
+}
+
+// mergeDelays stores one batch of latency measurements per profile.
+func (a *App) mergeDelays(result map[string]map[string]uint16) {
+	for profile, nodes := range result {
+		if a.delays[profile] == nil {
+			a.delays[profile] = map[string]uint16{}
+		}
+		for node, ms := range nodes {
+			a.delays[profile][node] = ms
+		}
+	}
+}
+
+// runDelay tests the requested nodes in the background and stores the result.
+func (a *App) runDelay(targets []ipc.DelayTarget, done func(error)) {
+	a.busy = true
+	a.busyText = t(txtDelayBusy)
+	go func() {
+		result, err := fetchDelays(targets)
+		a.events <- event{err: err, done: func(err error) {
+			if err == nil {
+				a.mergeDelays(result)
+			}
+			if done != nil {
+				done(err)
+			}
+		}}
+	}()
+}
+
+// fetchDelays asks the daemon to test the latency of the requested nodes.
+func fetchDelays(targets []ipc.DelayTarget) (map[string]map[string]uint16, error) {
+	out := map[string]map[string]uint16{}
+	data, err := json.Marshal(targets)
+	if err != nil {
+		return out, err
+	}
+	resp, err := ipc.Command(ipc.Request{Command: ipc.CmdDelayNodes, Params: map[string]string{"targets": string(data)}})
+	if err != nil {
+		return out, err
+	}
+	if !resp.OK {
+		return out, errors.New(resp.Error)
+	}
+	err = json.Unmarshal(resp.Data, &out)
+	return out, err
 }
 
 // fetchStatus asks the daemon for one state snapshot.

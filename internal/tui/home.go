@@ -45,6 +45,27 @@ func NewHome(app *App, status ipc.Status) *Home {
 // Init refreshes the status and the traffic history from the daemon.
 func (h *Home) Init() {
 	h.Refresh()
+	h.measureDelay()
+}
+
+// measureDelay tests the latency of the selected node in the background
+// when no measurement is stored yet.
+func (h *Home) measureDelay() {
+	node := h.nodes.Selected
+	profile := h.status.Active
+	if node == "" || profile == "" || h.app.delayOf(profile, node) >= 0 {
+		return
+	}
+	target := []ipc.DelayTarget{{Profile: profile, Nodes: []string{node}}}
+	go func() {
+		result, err := fetchDelays(target)
+		h.app.events <- event{err: err, done: func(error) {
+			if err == nil {
+				h.app.mergeDelays(result)
+				h.View()
+			}
+		}}
+	}()
 }
 
 // Modal reports whether the page consumes every key itself.
@@ -184,16 +205,20 @@ func (h *Home) drawStatus(buf *strings.Builder, x, y, width int) {
 	fmt.Fprintf(buf, "\x1b[%d;%dH\x1b[K\x1b[90m└%s┘\x1b[0m", y+panelRows(inner)+1, x, strings.Repeat("─", max(width-2, 0)))
 
 	node, proto, profile, trafficText, used, total := h.statusText()
-	pad := max(displayWidth(t(txtNode)), displayWidth(t(txtProfile)), displayWidth(t(txtTrafficLabel)))
+	pad := max(displayWidth(t(txtNode)), displayWidth(t(txtProfile)), displayWidth(t(txtTrafficLabel)), displayWidth(t(txtDelayLabel)))
+	ms := h.app.delayOf(h.status.Active, node)
 	if inner >= homeWideMin {
 		leftW := inner * 55 / 100
 		rightX := x + 1 + leftW + 2
 		rightW := inner - leftW - 2
+		lineW := displayWidth(t(txtTrafficLabel)) + 1 + displayWidth(trafficText)
+		drawDelayRow(buf, usageLineX(rightX, rightW, trafficText), y+2, rightW, 0, delayText(ms), ms, lineW)
 		drawKV(buf, x+1, y+3, leftW, pad, t(txtNode), node, proto)
 		drawKV(buf, x+1, y+4, leftW, pad, t(txtProfile), profile, "")
 		h.drawUsage(buf, rightX, rightW, y+3, trafficText, used, total)
 		return
 	}
+	drawDelayRow(buf, x+1, y+2, inner, pad, delayText(ms), ms, 0)
 	drawKV(buf, x+1, y+3, inner, pad, t(txtNode), node, proto)
 	drawKV(buf, x+1, y+4, inner, pad, t(txtProfile), profile, "")
 	h.drawTrafficRow(buf, x+1, y+5, inner, pad, trafficText, used, total)
@@ -309,10 +334,17 @@ func drawKV(buf *strings.Builder, x, y, width, pad int, label, value, proto stri
 	if nameW := width - pad - 2 - protoW; nameW >= 3 {
 		name = cutEllipsis(value, nameW)
 	}
-	line := colGreen + fit(label, pad) + "\x1b[0m  " + colTextBold + name + "\x1b[0m" + protoSuffix(proto, false)
+	line := colGreen + fit(label, pad) + "\x1b[0m  " + colTextBold + name + "\x1b[0m" + protoSuffix(proto, false) + "\x1b[0m"
 	line = truncateStyled(line, width)
 	fmt.Fprintf(buf, "\x1b[%d;%dH\x1b[K%s", y, x, line)
 	return x + min(visibleWidth(line), width)
+}
+
+// usageLineX returns the left column of the right block so the delay and
+// the usage rows line up.
+func usageLineX(x, width int, value string) int {
+	lineW := displayWidth(t(txtTrafficLabel)) + 1 + displayWidth(value)
+	return x + width - max(lineW, 0)
 }
 
 // drawUsage renders the usage figures and the quota gauge as one block
@@ -321,10 +353,24 @@ func (h *Home) drawUsage(buf *strings.Builder, x, width, y int, value string, us
 	label := t(txtTrafficLabel)
 	valueW := displayWidth(value)
 	lineW := displayWidth(label) + 1 + valueW
-	lineX := x + width - max(lineW, 0)
+	lineX := usageLineX(x, width, value)
 	fmt.Fprintf(buf, "\x1b[%d;%dH\x1b[K%s%s\x1b[0m %s%s\x1b[0m",
 		y, lineX, colGreen, label, colTextBold, value)
 	drawGaugeRow(buf, lineX, y+1, lineW, used, total)
+}
+
+// drawDelayRow renders the delay label and its value in the color of the
+// latency. When blockW is positive the value is right aligned inside the
+// block so the row lines up with the usage rows.
+func drawDelayRow(buf *strings.Builder, x, y, width, pad int, text string, ms, blockW int) {
+	label := t(txtDelayLabel)
+	line := delayColor(ms) + fit(label, pad) + "  " + text + "\x1b[0m"
+	if blockW > 0 {
+		pad := blockW - displayWidth(label) - 2 - displayWidth(text)
+		line = strings.Repeat(" ", max(pad, 0)) + delayColor(ms) + label + "  " + text + "\x1b[0m"
+	}
+	line = truncateStyled(line, width)
+	fmt.Fprintf(buf, "\x1b[%d;%dH\x1b[K%s", y, x, line)
 }
 
 // drawGaugeRow renders the quota gauge on one row, its block sized to
