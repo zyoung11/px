@@ -8,10 +8,27 @@ import (
 	"px/internal/traffic"
 )
 
-// homeNodeCells is the node name width limit on the Home page.
-const homeNodeCells = 24
+// homeWideMin is the inner panel width that fits the two column layout.
+const homeWideMin = 64
 
-// Home is the first page: kernel status over two traffic charts.
+// badge background colors as raw RGB triplets for the 48 and 38 codes.
+const (
+	rgbGreen = "166;218;149"
+	rgbRed   = "237;135;150"
+	rgbBlue  = "138;173;244"
+	rgbGray  = "110;115;141"
+	rgbInk   = "36;39;58"
+)
+
+// version is the build version shown on the Home panel top border.
+var version string
+
+// SetVersion records the build version drawn on the Home panel.
+func SetVersion(value string) {
+	version = value
+}
+
+// Home is the first page: one status panel over two traffic charts.
 type Home struct {
 	app     *App
 	status  ipc.Status
@@ -98,7 +115,7 @@ func (h *Home) Refresh() {
 	}
 }
 
-// View draws the Home page: the kernel status block and the upload and
+// View draws the Home page: one status panel over the upload and the
 // download charts side by side.
 func (h *Home) View() {
 	term := h.app.terminal()
@@ -109,10 +126,7 @@ func (h *Home) View() {
 	var buf strings.Builder
 	buf.WriteString("\x1b[2J\x1b[3J\x1b[H")
 
-	title := "Home"
-	titleX := max((w-displayWidth(title))/2, 1)
-
-	if w < 40 || hgt < 12 {
+	if w < 30 || hgt < 12 {
 		msg := t(txtTooSmallDisplay)
 		x := max((w-displayWidth(msg))/2, 1)
 		fmt.Fprintf(&buf, "\x1b[%d;%dH\x1b[90m%s\x1b[0m", max(hgt/2, 1), x, msg)
@@ -120,79 +134,225 @@ func (h *Home) View() {
 		return
 	}
 
-	state := t(txtStopped)
-	if h.status.Running {
-		state = t(txtRunning)
-	}
-	tun := t(txtOff)
-	if h.status.Tun {
-		tun = t(txtOn)
-	}
-	active := h.status.Active
-	if active == "" {
-		active = "-"
-	}
-	node := h.nodes.Selected
-	if node == "" {
-		node = "-"
-	}
-	traffic := "-"
-	for _, p := range h.status.Profiles {
-		if p.Name == active && p.Total > 0 {
-			traffic = fmtBytes(uint64(p.Upload+p.Download)) + " / " + fmtBytes(uint64(p.Total))
-		}
-	}
-	active = cutName(active, profileNameCells)
-	node = cutName(node, homeNodeCells)
-	pad := max(displayWidth(t(txtKernel)), displayWidth("TUN"), displayWidth(t(txtPort)), displayWidth(t(txtProfile)), displayWidth(t(txtNode)), displayWidth(t(txtTrafficLabel)))
 	boxW := min((w-6)/2, 60)
-	boxH := min(max(boxW*2/5, 6), 20)
-	boxX := 1 + max((w-1-(boxW*2+1))/2, 0)
-	blockTop := 2 + max((hgt-2-(boxH+6))/2, 0)
-	fmt.Fprintf(&buf, "\x1b[%d;1H\x1b[K\x1b[%d;%dH%s%s\x1b[0m", blockTop, blockTop, titleX, colHeading, title)
-	drawInfoLine(&buf, blockTop+2, w, []infoPair{{t(txtKernel), state}, {"TUN", tun}, {t(txtPort), itoa(h.status.Port)}}, pad)
-	drawInfoLine(&buf, blockTop+4, w, []infoPair{{t(txtProfile), active}, {t(txtNode), node}, {t(txtTrafficLabel), traffic}}, pad)
+	blockW := boxW*2 + 1
+	boxX := 1 + max((w-1-blockW)/2, 0)
+	panelH := 6
+	if blockW-2 < homeWideMin {
+		panelH = 7
+	}
+	stacked := boxW < 20
+	chartW := boxW
+	chartH := min(max(boxW*2/5, 6), 20, hgt-panelH-2)
+	chartsH := chartH + 1
+	if stacked {
+		chartW = blockW
+		chartH = min(max(blockW*2/5, 6), 20, (hgt-panelH-3)/2)
+		chartsH = chartH*2 + 1
+	}
+	top := 1 + max((hgt-1-(panelH+1+chartsH))/2, 0)
 
-	h.drawPanel(&buf, boxX, blockTop+6, boxW, boxH, t(txtUpload), h.txSeries(), h.traffic.TxTotal)
-	h.drawPanel(&buf, boxX+boxW+1, blockTop+6, boxW, boxH, t(txtDownload), h.rxSeries(), h.traffic.RxTotal)
+	h.drawStatus(&buf, boxX, top, blockW)
+	chartTop := top + panelH + 1
+	if stacked {
+		h.drawPanel(&buf, boxX, chartTop, chartW, chartH, t(txtUpload), colUpload, h.txSeries())
+		h.drawPanel(&buf, boxX, chartTop+chartH+1, chartW, chartH, t(txtDownload), colDownload, h.rxSeries())
+	} else {
+		h.drawPanel(&buf, boxX, chartTop, chartW, chartH, t(txtUpload), colUpload, h.txSeries())
+		h.drawPanel(&buf, boxX+chartW+1, chartTop, chartW, chartH, t(txtDownload), colDownload, h.rxSeries())
+	}
 
-	hint := h.footerLine()
+	hint := truncateStyled(h.footerLine(), w)
 	hintX := max((w-visibleWidth(hint))/2, 1)
 	fmt.Fprintf(&buf, "\x1b[%d;1H\x1b[K\x1b[%d;%dH\x1b[90m%s\x1b[0m", hgt, hgt, hintX, hint)
 
 	print(buf.String())
 }
 
-// infoPair is one label and value of the Home info block.
-type infoPair struct {
-	label string
-	value string
+// drawStatus renders the bordered status panel: the top border with the
+// page title, the badge row and the node profile and traffic rows.
+func (h *Home) drawStatus(buf *strings.Builder, x, y, width int) {
+	inner := width - 2
+	drawStatusTop(buf, x, y, inner)
+	fmt.Fprintf(buf, "\x1b[%d;%dH\x1b[K%s", y+1, x+1, h.badgeLine(inner))
+	fmt.Fprintf(buf, "\x1b[%d;%dH\x1b[K\x1b[90m└%s┘\x1b[0m", y+panelRows(inner)+1, x, strings.Repeat("─", max(width-2, 0)))
+
+	node, proto, profile, trafficText, used, total := h.statusText()
+	pad := max(displayWidth(t(txtNode)), displayWidth(t(txtProfile)), displayWidth(t(txtTrafficLabel)))
+	if inner >= homeWideMin {
+		leftW := inner * 55 / 100
+		rightX := x + 1 + leftW + 2
+		rightW := inner - leftW - 2
+		drawKV(buf, x+1, y+3, leftW, pad, t(txtNode), node, proto)
+		drawKV(buf, x+1, y+4, leftW, pad, t(txtProfile), profile, "")
+		h.drawUsage(buf, rightX, rightW, y+3, trafficText, used, total)
+		return
+	}
+	drawKV(buf, x+1, y+3, inner, pad, t(txtNode), node, proto)
+	drawKV(buf, x+1, y+4, inner, pad, t(txtProfile), profile, "")
+	h.drawTrafficRow(buf, x+1, y+5, inner, pad, trafficText, used, total)
 }
 
-// drawInfoLine renders label value pairs centered on one row, labels in
-// green and values in bold.
-func drawInfoLine(buf *strings.Builder, y, w int, pairs []infoPair, pad int) {
-	var plain strings.Builder
-	for i, p := range pairs {
-		if i > 0 {
-			plain.WriteString("    ")
-		}
-		plain.WriteString(fit(p.label, pad))
-		plain.WriteString(" ")
-		plain.WriteString(p.value)
+// panelRows returns the count of the content rows between the panel borders.
+func panelRows(inner int) int {
+	if inner >= homeWideMin {
+		return 4
 	}
-	x := max((w-displayWidth(plain.String()))/2, 1)
-	fmt.Fprintf(buf, "\x1b[%d;1H\x1b[K\x1b[%d;%dH", y, y, x)
-	for i, p := range pairs {
-		if i > 0 {
-			buf.WriteString("    ")
-		}
-		fmt.Fprintf(buf, "%s%s\x1b[0m %s%s\x1b[0m", colGreen, fit(p.label, pad), colTextBold, p.value)
+	return 5
+}
+
+// drawStatusTop renders the panel top border with the page title and the
+// build version.
+func drawStatusTop(buf *strings.Builder, x, y, inner int) {
+	title := " px "
+	ver := ""
+	if version != "" {
+		ver = " v" + version + " "
 	}
+	fill := inner - 1 - displayWidth(title) - displayWidth(ver)
+	if fill < 1 {
+		ver = ""
+		fill = inner - 1 - displayWidth(title)
+	}
+	if fill < 1 {
+		fill = 1
+	}
+	fmt.Fprintf(buf, "\x1b[%d;%dH\x1b[90m┌─\x1b[0m%s%s\x1b[0m\x1b[90m%s\x1b[0m%s%s\x1b[0m\x1b[90m┐\x1b[0m",
+		y, x, colHeading, title, strings.Repeat("─", fill), colVersion, ver)
+}
+
+// badgeLine renders the status pills and the listening port of the panel.
+func (h *Home) badgeLine(width int) string {
+	port := colSub + t(txtPort) + "\x1b[0m " + colTextBold + itoa(h.status.Port) + "\x1b[0m"
+	if width < homeWideMin {
+		port = colTextBold + itoa(h.status.Port) + "\x1b[0m"
+	}
+	segs := []string{pill(t(txtRunning), rgbGreen), pill("TUN "+t(txtOn), rgbBlue), port}
+	if !h.status.Running {
+		segs[0] = pill(t(txtStopped), rgbRed)
+	}
+	if !h.status.Tun {
+		segs[1] = pill("TUN "+t(txtOff), rgbGray)
+	}
+
+	var b strings.Builder
+	used := 0
+	for _, seg := range segs {
+		segW := visibleWidth(seg)
+		gap := 2
+		if b.Len() == 0 {
+			gap = 0
+		}
+		if used+gap+segW > width {
+			break
+		}
+		b.WriteString(strings.Repeat(" ", gap))
+		b.WriteString(seg)
+		used += gap + segW
+	}
+	return b.String()
+}
+
+// pill renders one status badge as a solid block of color.
+func pill(text, bg string) string {
+	return "\x1b[48;2;" + bg + "m\x1b[38;2;" + rgbInk + "m\x1b[1m " + text + " \x1b[0m"
+}
+
+// statusText returns the node and profile names and the traffic figures
+// shown on the status panel.
+func (h *Home) statusText() (node, proto, profile, trafficText string, used, total int64) {
+	profile = h.status.Active
+	for _, p := range h.status.Profiles {
+		if p.Name == profile {
+			used = p.Upload + p.Download
+			total = p.Total
+		}
+	}
+	if profile == "" {
+		profile = "-"
+	}
+	node = h.nodes.Selected
+	if node == "" {
+		node = "-"
+	}
+	for _, n := range h.nodes.Nodes {
+		if n.Name == node {
+			proto = n.Type
+		}
+	}
+	switch {
+	case total > 0:
+		trafficText = fmtBytes(uint64(used)) + " / " + fmtBytes(uint64(total))
+	case used > 0:
+		trafficText = fmtBytes(uint64(used))
+	default:
+		trafficText = "-"
+	}
+	return node, proto, profile, trafficText, used, total
+}
+
+// drawKV renders one label and value pair on a row and returns the column
+// right after the rendered value. A long value ends in an ellipsis and
+// gives way before the protocol tag does, like the Profiles column rows.
+func drawKV(buf *strings.Builder, x, y, width, pad int, label, value, proto string) int {
+	protoW := 0
+	if proto != "" {
+		protoW = 2 + displayWidth(proto)
+	}
+	name := ""
+	if nameW := width - pad - 2 - protoW; nameW >= 3 {
+		name = cutEllipsis(value, nameW)
+	}
+	line := colGreen + fit(label, pad) + "\x1b[0m  " + colTextBold + name + "\x1b[0m" + protoSuffix(proto, false)
+	line = truncateStyled(line, width)
+	fmt.Fprintf(buf, "\x1b[%d;%dH\x1b[K%s", y, x, line)
+	return x + min(visibleWidth(line), width)
+}
+
+// drawUsage renders the usage figures and the quota gauge as one block
+// aligned to the right edge of the panel.
+func (h *Home) drawUsage(buf *strings.Builder, x, width, y int, value string, used, total int64) {
+	label := t(txtTrafficLabel)
+	valueW := displayWidth(value)
+	lineW := displayWidth(label) + 1 + valueW
+	lineX := x + width - max(lineW, 0)
+	fmt.Fprintf(buf, "\x1b[%d;%dH\x1b[K%s%s\x1b[0m %s%s\x1b[0m",
+		y, lineX, colGreen, label, colTextBold, value)
+	drawGaugeRow(buf, lineX, y+1, lineW, used, total)
+}
+
+// drawGaugeRow renders the quota gauge on one row, its block sized to
+// the value block above so both rows line up on the right.
+func drawGaugeRow(buf *strings.Builder, x, y, width int, used, total int64) {
+	if total <= 0 {
+		return
+	}
+	ratio := min(float64(used)/float64(total), 1)
+	pct := itoa(int(ratio*100+0.5)) + "%"
+	barW := width - displayWidth(pct) - 1
+	if barW < 4 {
+		return
+	}
+	fmt.Fprintf(buf, "\x1b[%d;%dH\x1b[K%s %s%s\x1b[0m", y, x, gradientBar(ratio, barW), colTextBold, pct)
+}
+
+// drawTrafficRow renders the traffic figures and the quota gauge on one row.
+func (h *Home) drawTrafficRow(buf *strings.Builder, x, y, width, pad int, value string, used, total int64) {
+	end := drawKV(buf, x, y, width, pad, t(txtTrafficLabel), value, "")
+	if total <= 0 {
+		return
+	}
+	ratio := min(float64(used)/float64(total), 1)
+	pct := itoa(int(ratio*100+0.5)) + "%"
+	barW := x + width - end - displayWidth(pct) - 2
+	if barW < 4 {
+		return
+	}
+	fmt.Fprintf(buf, " %s %s%s\x1b[0m", gradientBar(ratio, barW), colTextBold, pct)
 }
 
 // drawPanel renders one titled traffic chart inside a box.
-func (h *Home) drawPanel(buf *strings.Builder, x, top, width, height int, label string, data []float64, total int64) {
+func (h *Home) drawPanel(buf *strings.Builder, x, top, width, height int, label, accent string, data []float64) {
 	inner := width - 2
 	if inner < 8 || height < 4 {
 		return
@@ -201,17 +361,33 @@ func (h *Home) drawPanel(buf *strings.Builder, x, top, width, height int, label 
 	if len(data) > 0 {
 		current = data[len(data)-1]
 	}
-	title := fmt.Sprintf(t(txtPanelTitle), label, fmtBytes(uint64(current)), fmtBytes(uint64(total)))
-	title = truncateToWidthFromStart(title, max(inner-1, 0))
-	fill := max(inner-1-displayWidth(title), 0)
-	fmt.Fprintf(buf, "\x1b[%d;%dH\x1b[90m┌─\x1b[0m\x1b[1m%s%s\x1b[0m\x1b[90m%s┐\x1b[0m", top, x, chartColor, title, strings.Repeat("─", fill))
-
+	drawBorderRow(buf, x, top, inner, accent+" "+label+" \x1b[0m", "┌", "┐")
 	chart := miniChart(data, inner, height-2, chartMax(data))
-	for i, line := range strings.Split(chart, "\n") {
+	lines := strings.Split(chart, "\n")
+	for row := range height - 2 {
+		line := ""
+		if row < len(lines) {
+			line = lines[row]
+		}
 		pad := max(inner-displayWidth(line), 0)
-		fmt.Fprintf(buf, "\x1b[%d;%dH\x1b[90m│\x1b[0m%s%s\x1b[0m\x1b[90m│\x1b[0m", top+1+i, x, chartColor+line, strings.Repeat(" ", pad))
+		fmt.Fprintf(buf, "\x1b[%d;%dH\x1b[90m│\x1b[0m%s%s\x1b[0m\x1b[90m│\x1b[0m", top+1+row, x, accent+line, strings.Repeat(" ", pad))
 	}
-	fmt.Fprintf(buf, "\x1b[%d;%dH\x1b[90m└%s┘\x1b[0m", top+height-1, x, strings.Repeat("─", inner))
+	value, unit := fmtRate(current)
+	drawBorderRow(buf, x, top+height-1, inner, " "+accent+value+" "+unit+"/s\x1b[0m ", "└", "┘")
+}
+
+// drawBorderRow renders one box border row with a styled label centered
+// between the left and the right corner glyphs.
+func drawBorderRow(buf *strings.Builder, x, y, inner int, text, left, right string) {
+	fill := inner - visibleWidth(text)
+	if fill < 2 {
+		text = truncateStyled(text, max(inner-2, 0))
+		fill = inner - visibleWidth(text)
+	}
+	l := fill / 2
+	r := fill - l
+	fmt.Fprintf(buf, "\x1b[%d;%dH\x1b[90m%s%s\x1b[0m%s\x1b[0m\x1b[90m%s%s\x1b[0m",
+		y, x, left, strings.Repeat("─", l), text, strings.Repeat("─", r), right)
 }
 
 // txSeries returns the upload samples in bytes per second.

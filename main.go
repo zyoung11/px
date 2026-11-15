@@ -12,7 +12,7 @@ import (
 	"px/internal/tui"
 )
 
-const version = "0.1.3"
+const version = "0.1.4"
 
 const (
 	colorMauve  = "\x1b[38;2;198;160;246m"
@@ -159,6 +159,7 @@ func requireRoot() bool {
 }
 
 func runTUI() int {
+	tui.SetVersion(version)
 	if err := tui.Run(); err != nil {
 		logx.Error("%v", err)
 		logx.Info("start the daemon first: systemctl start px")

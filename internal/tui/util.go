@@ -8,6 +8,10 @@ import (
 	"github.com/mattn/go-runewidth"
 )
 
+// widthCondition measures text the way the terminal draws it: ambiguous
+// width runes take one cell whatever the locale says.
+var widthCondition = runewidth.Condition{EastAsianWidth: false, StrictEmojiNeutral: true}
+
 // itoa formats one integer.
 func itoa(n int) string {
 	return strconv.Itoa(n)
@@ -22,7 +26,7 @@ func truncateToWidthFromStart(text string, width int) string {
 	var b strings.Builder
 	used := 0
 	for _, r := range text {
-		rw := runewidth.RuneWidth(r)
+		rw := widthCondition.RuneWidth(r)
 		if used+rw > width {
 			break
 		}
@@ -46,7 +50,7 @@ func fit(s string, w int) string {
 
 // displayWidth returns the display width of text in cells.
 func displayWidth(text string) int {
-	return runewidth.StringWidth(text)
+	return widthCondition.StringWidth(text)
 }
 
 // cutName shortens a name past the limit and marks the cut with an
@@ -68,7 +72,7 @@ func visibleWidth(s string) int {
 			continue
 		}
 		r, size := utf8.DecodeRuneInString(s[i:])
-		w += runewidth.RuneWidth(r)
+		w += widthCondition.RuneWidth(r)
 		i += size
 	}
 	return w
@@ -100,7 +104,7 @@ func truncateStyled(s string, width int) string {
 			continue
 		}
 		r, size := utf8.DecodeRuneInString(s[i:])
-		rw := runewidth.RuneWidth(r)
+		rw := widthCondition.RuneWidth(r)
 		if used+rw > width-3 {
 			cut = true
 			continue

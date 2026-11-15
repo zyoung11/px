@@ -26,6 +26,10 @@ const (
 	colTextBold = "\x1b[1m\x1b[38;2;202;211;245m"
 	colGreen    = "\x1b[38;2;166;218;149m"
 	colHeading  = "\x1b[1m\x1b[38;2;183;189;248m"
+	colSub      = "\x1b[38;2;165;173;203m"
+	colVersion  = "\x1b[38;2;198;160;246m"
+	colUpload   = "\x1b[38;2;245;169;127m"
+	colDownload = "\x1b[38;2;138;173;244m"
 )
 
 // UI strings in English and Chinese.
@@ -55,10 +59,9 @@ var (
 	txtTooSmallBrowse  = uiText{"Terminal too small to browse", "终端过小，无法浏览"}
 	txtTooSmallDisplay = uiText{"Terminal too small to display", "终端过小，无法显示"}
 
-	txtKernel       = uiText{"Kernel", "内核"}
 	txtProfile      = uiText{"Profile", "配置"}
 	txtNode         = uiText{"Node", "节点"}
-	txtTrafficLabel = uiText{"Traffic", "流量"}
+	txtTrafficLabel = uiText{"Usage", "用量"}
 	txtPort         = uiText{"Port", "端口"}
 	txtRunning      = uiText{"Running", "运行中"}
 	txtStopped      = uiText{"Stopped", "已停止"}
@@ -66,7 +69,6 @@ var (
 	txtOff          = uiText{"Off", "关"}
 	txtUpload       = uiText{"Upload", "上传"}
 	txtDownload     = uiText{"Download", "下载"}
-	txtPanelTitle   = uiText{"%s %s/s  total %s ", "%s %s/s  共 %s "}
 
 	txtSortRegion  = uiText{"Region", "按地区"}
 	txtSortDefault = uiText{"Default", "默认"}
