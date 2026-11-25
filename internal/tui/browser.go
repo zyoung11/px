@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -40,6 +39,7 @@ type Browser struct {
 	messageUntil time.Time
 	sortMode     int
 	align        bool
+	loading      map[string]bool
 }
 
 // inputLine is the one line add profile input drawn in BM's search
@@ -52,7 +52,7 @@ type inputLine struct {
 
 // NewBrowser creates the Library page.
 func NewBrowser(app *App) *Browser {
-	return &Browser{app: app, nodes: map[string]ipc.NodesInfo{}, history: map[string]browsePos{}}
+	return &Browser{app: app, nodes: map[string]ipc.NodesInfo{}, history: map[string]browsePos{}, loading: map[string]bool{}}
 }
 
 // Init reloads the profile list and the remembered UI state from the
@@ -185,7 +185,7 @@ func (b *Browser) handleConfirmKey(key rune) {
 				b.setMessage(err.Error(), true)
 			}
 			b.Init()
-			b.View()
+			b.app.redrawCurrent(b)
 		})
 	}
 	b.View()
@@ -207,7 +207,7 @@ func (b *Browser) handleInputKey(key rune) {
 				b.setMessage(err.Error(), true)
 			}
 			b.Init()
-			b.View()
+			b.app.redrawCurrent(b)
 		})
 		b.View()
 	case IsKey(key, keymap.Library.Input.EscapeInput):
@@ -301,12 +301,13 @@ func (b *Browser) selectNode() {
 		if err != nil {
 			b.setMessage(err.Error(), true)
 		} else {
-			delete(b.nodes, p.Name)
-			b.loadNodes(p.Name)
+			info := b.nodes[p.Name]
+			info.Selected = node
+			b.nodes[p.Name] = info
 			b.active = p.Name
 			b.setMessage("", false)
 		}
-		b.View()
+		b.app.redrawCurrent(b)
 	})
 	b.View()
 }
@@ -316,39 +317,25 @@ func (b *Browser) selectNode() {
 // testDelay measures the latency of every node of the profile under the
 // cursor, or of every profile when the cursor sits on the list root.
 func (b *Browser) testDelay() {
-	targets := []ipc.DelayTarget{}
+	var profiles []string
 	if b.inside {
 		if p, ok := b.currentProfile(); ok {
-			targets = append(targets, b.delayTarget(p.Name))
+			profiles = []string{p.Name}
 		}
 	} else {
 		for _, p := range b.profiles {
-			targets = append(targets, b.delayTarget(p.Name))
+			profiles = append(profiles, p.Name)
 		}
 	}
-	if len(targets) == 0 {
+	if len(profiles) == 0 {
 		return
 	}
-	b.app.runDelay(targets, func(err error) {
+	b.app.runDelay(profiles, func(err error) {
 		if err != nil {
 			b.setMessage(err.Error(), true)
 		}
-		b.View()
+		b.app.redrawCurrent(b)
 	})
-}
-
-// delayTarget collects the node names of one profile for a delay request.
-func (b *Browser) delayTarget(profile string) ipc.DelayTarget {
-	b.loadNodes(profile)
-	nodes := b.sortedNodes(profile)
-	names := make([]string, 0, len(nodes))
-	for _, node := range nodes {
-		if node.Name == "DIRECT" {
-			continue
-		}
-		names = append(names, node.Name)
-	}
-	return ipc.DelayTarget{Profile: profile, Nodes: names}
 }
 
 func (b *Browser) syncProfile() {
@@ -369,7 +356,7 @@ func (b *Browser) syncProfile() {
 				b.loadNodes(p.Name)
 			}
 		}
-		b.View()
+		b.app.redrawCurrent(b)
 	})
 	b.View()
 }
@@ -391,26 +378,29 @@ func (b *Browser) sortedNodes(name string) []ipc.NodeInfo {
 }
 
 // loadNodes fills the node cache of one profile.
+// loadNodes starts loading the node list of one profile in the background
+// when it is not cached yet and redraws the page when the list arrives.
 func (b *Browser) loadNodes(name string) {
 	if _, ok := b.nodes[name]; ok {
 		return
 	}
-	var info ipc.NodesInfo
-	resp, err := ipc.Command(ipc.Request{Command: ipc.CmdNodes, Params: map[string]string{"name": name}})
-	if err != nil {
-		b.setMessage(err.Error(), true)
+	if b.loading[name] {
 		return
 	}
-	if !resp.OK {
-		b.setMessage(resp.Error, true)
-		return
-	}
-	if err := json.Unmarshal(resp.Data, &info); err != nil {
-		b.setMessage(err.Error(), true)
-		return
-	}
-	b.nodes[name] = info
-	b.clamp()
+	b.loading[name] = true
+	go func() {
+		info, err := fetchNodes(name)
+		b.app.events <- event{err: err, done: func(error) {
+			delete(b.loading, name)
+			if err != nil {
+				b.setMessage(err.Error(), true)
+				return
+			}
+			b.nodes[name] = info
+			b.clamp()
+			b.app.redrawCurrent(b)
+		}}
+	}()
 }
 
 func (b *Browser) currentProfile() (ipc.ProfileInfo, bool) {
@@ -445,18 +435,20 @@ func (b *Browser) expireMessage() {
 	b.drawFooterOnly()
 }
 
+// clamp keeps the cursors and the offsets inside their lists. The item
+// cursor stays untouched while the node list is still loading so a
+// remembered position survives the asynchronous load.
 func (b *Browser) clamp() {
-	if b.inside {
-		count := 0
-		if p, ok := b.currentProfile(); ok {
-			count = len(b.nodes[p.Name].Nodes)
-		}
-		b.cursorItem = clampPos(b.cursorItem, count)
-		b.offsetItem = min(b.offsetItem, b.cursorItem)
-		return
-	}
 	b.cursorDir = clampPos(b.cursorDir, len(b.profiles))
 	b.offsetDir = min(b.offsetDir, b.cursorDir)
+	if b.inside {
+		if p, ok := b.currentProfile(); ok {
+			if info, loaded := b.nodes[p.Name]; loaded {
+				b.cursorItem = clampPos(b.cursorItem, len(info.Nodes))
+				b.offsetItem = min(b.offsetItem, b.cursorItem)
+			}
+		}
+	}
 }
 
 // clampPos keeps a cursor inside a list of count entries.

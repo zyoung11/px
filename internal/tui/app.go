@@ -169,8 +169,7 @@ func Run() error {
 			app.tick++
 			if app.tick%10 == 0 {
 				if _, isHome := app.pages[app.current].(*Home); isHome && !app.helpOpen && !app.confirmQuit {
-					home.Refresh()
-					home.View()
+					home.refreshAsync()
 				}
 			}
 		case <-winch:
@@ -309,11 +308,37 @@ func (a *App) mergeDelays(result map[string]map[string]uint16) {
 	}
 }
 
-// runDelay tests the requested nodes in the background and stores the result.
-func (a *App) runDelay(targets []ipc.DelayTarget, done func(error)) {
+// redrawCurrent redraws the given page when it is the page on screen, so
+// an asynchronous answer never covers another page.
+func (a *App) redrawCurrent(p Page) {
+	if a.current < len(a.pages) && a.pages[a.current] == p && !a.helpOpen && !a.confirmQuit {
+		p.View()
+	}
+}
+
+// runDelay collects the node lists of the given profiles and tests their
+// latency in the background, never blocking the event loop.
+func (a *App) runDelay(profiles []string, done func(error)) {
 	a.busy = true
 	a.busyText = t(txtDelayBusy)
 	go func() {
+		targets := []ipc.DelayTarget{}
+		for _, profile := range profiles {
+			info, err := fetchNodes(profile)
+			if err != nil {
+				continue
+			}
+			names := make([]string, 0, len(info.Nodes))
+			for _, node := range info.Nodes {
+				if node.Name == "DIRECT" {
+					continue
+				}
+				names = append(names, node.Name)
+			}
+			if len(names) > 0 {
+				targets = append(targets, ipc.DelayTarget{Profile: profile, Nodes: names})
+			}
+		}
 		result, err := fetchDelays(targets)
 		a.events <- event{err: err, done: func(err error) {
 			if err == nil {

@@ -43,7 +43,8 @@ type Daemon struct {
 	configPath   string
 	geoDir       string
 	traffic      *traffic.Sampler
-	mu           sync.Mutex
+	mu           sync.RWMutex
+	kernelMu     sync.Mutex
 	st           *state.State
 	stMTime      time.Time
 	profileMTime map[string]time.Time
@@ -129,13 +130,22 @@ func open(ctx context.Context, configPath string) (*Daemon, error) {
 }
 
 func (d *Daemon) handle(req ipc.Request, report func(string)) ipc.Response {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	d.reloadLocked()
 	var err error
 	switch req.Command {
 	case ipc.CmdStatus:
+		d.mu.RLock()
+		defer d.mu.RUnlock()
 		return okResponse(d.status())
+	case ipc.CmdTraffic:
+		return okResponse(d.traffic.Snapshot())
+	case ipc.CmdNodes:
+		d.mu.RLock()
+		defer d.mu.RUnlock()
+		info, nerr := d.nodesInfo(req.Params["name"])
+		if nerr != nil {
+			return ipc.Response{OK: false, Error: nerr.Error()}
+		}
+		return okResponse(info)
 	case ipc.CmdAdd:
 		err = d.add(req.Params["url"], report)
 	case ipc.CmdSync:
@@ -150,14 +160,6 @@ func (d *Daemon) handle(req ipc.Request, report func(string)) ipc.Response {
 		return d.delay(req.Params["group"])
 	case ipc.CmdDelayNodes:
 		return d.delayNodes(req.Params["targets"])
-	case ipc.CmdNodes:
-		info, nerr := d.nodesInfo(req.Params["name"])
-		if nerr != nil {
-			return ipc.Response{OK: false, Error: nerr.Error()}
-		}
-		return okResponse(info)
-	case ipc.CmdTraffic:
-		return okResponse(d.traffic.Snapshot())
 	case ipc.CmdUI:
 		err = d.saveUI(req.Params["sort"], req.Params["page"], req.Params["align"], req.Params["browse"])
 	case ipc.CmdStart:
@@ -192,8 +194,17 @@ func (d *Daemon) add(rawURL string, report func(string)) error {
 	if _, err := url.Parse(rawURL); err != nil {
 		return fmt.Errorf("invalid url: %w", err)
 	}
-	if i := d.st.FindURL(rawURL); i >= 0 {
-		return d.sync(d.st.Profiles[i].Name, report)
+	d.mu.RLock()
+	known := ""
+	for _, p := range d.st.Profiles {
+		if p.URL == rawURL {
+			known = p.Name
+			break
+		}
+	}
+	d.mu.RUnlock()
+	if known != "" {
+		return d.sync(known, report)
 	}
 	data, fileName, traffic, err := download(d.ctx, rawURL, report)
 	if err != nil {
@@ -209,6 +220,8 @@ func (d *Daemon) add(rawURL string, report func(string)) error {
 	if name == "" {
 		name = deriveName(rawURL)
 	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	base := name
 	for i := 2; d.st.Find(name) >= 0; i++ {
 		name = fmt.Sprintf("%s-%d", base, i)
@@ -227,11 +240,16 @@ func (d *Daemon) add(rawURL string, report func(string)) error {
 }
 
 func (d *Daemon) sync(name string, report func(string)) error {
-	i := d.st.Find(name)
-	if i < 0 {
+	d.mu.RLock()
+	url := ""
+	if i := d.st.Find(name); i >= 0 {
+		url = d.st.Profiles[i].URL
+	}
+	d.mu.RUnlock()
+	if url == "" {
 		return fmt.Errorf("profile %s not found", name)
 	}
-	data, _, traffic, err := download(d.ctx, d.st.Profiles[i].URL, report)
+	data, _, traffic, err := download(d.ctx, url, report)
 	if err != nil {
 		return err
 	}
@@ -241,55 +259,76 @@ func (d *Daemon) sync(name string, report func(string)) error {
 	if err := core.Validate(data); err != nil {
 		return fmt.Errorf("profile rejected by the kernel: %w", err)
 	}
-	if err := d.writeProfile(name, data); err != nil {
+	d.mu.Lock()
+	if i := d.st.Find(name); i >= 0 {
+		if err := d.writeProfile(name, data); err != nil {
+			d.mu.Unlock()
+			return err
+		}
+		d.st.Profiles[i].UpdatedAt = nowStamp()
+		if traffic != nil {
+			d.st.Profiles[i].Traffic = traffic
+		}
+	}
+	err = d.saveState()
+	stillActive := d.st.Active == name
+	d.mu.Unlock()
+	if err != nil {
 		return err
 	}
-	d.st.Profiles[i].UpdatedAt = nowStamp()
-	if traffic != nil {
-		d.st.Profiles[i].Traffic = traffic
-	}
-	if d.st.Active == name {
+	if stillActive {
 		if err := d.applyProfile(name, report); err != nil {
 			return err
 		}
 	}
 	logx.Info("synced %s", name)
-	return d.saveState()
+	return nil
 }
 
 func (d *Daemon) delete(name string) error {
+	d.mu.Lock()
 	i := d.st.Find(name)
 	if i < 0 {
+		d.mu.Unlock()
 		return fmt.Errorf("profile %s not found", name)
 	}
-	if d.st.Active == name {
-		core.Stop()
+	stop := d.st.Active == name
+	if stop {
 		d.running = false
 		d.st.Active = ""
 		d.st.Enabled = false
 	}
 	os.Remove(state.ProfilePath(d.configPath, name))
 	d.st.Profiles = append(d.st.Profiles[:i], d.st.Profiles[i+1:]...)
+	err := d.saveState()
+	d.mu.Unlock()
+	if stop {
+		d.kernelMu.Lock()
+		core.Stop()
+		d.kernelMu.Unlock()
+	}
 	logx.Info("deleted %s", name)
-	return d.saveState()
+	return err
 }
 
 func (d *Daemon) activate(name string, report func(string)) error {
-	if d.st.Find(name) < 0 {
-		return fmt.Errorf("profile %s not found", name)
-	}
 	if err := d.applyProfile(name, report); err != nil {
 		return err
 	}
+	d.mu.Lock()
 	d.st.Active = name
+	err := d.saveState()
+	d.mu.Unlock()
 	logx.Info("activated %s", name)
-	return d.saveState()
+	return err
 }
 
 // selectNode switches every selectable group that carries the node and
 // records the choice per group.
 // saveUI records the TUI preferences in the state file.
 func (d *Daemon) saveUI(sortParam, pageParam, alignParam, browseParam string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	if v, err := strconv.Atoi(sortParam); err == nil {
 		d.st.Sort = v
 	}
@@ -312,15 +351,21 @@ func (d *Daemon) selectNode(name, node string) error {
 	if name == "" || node == "" {
 		return fmt.Errorf("profile and node are required")
 	}
-	if d.st.Active != name {
+	d.mu.RLock()
+	active := d.st.Active == name
+	d.mu.RUnlock()
+	if !active {
 		if err := d.applyProfile(name, nil); err != nil {
 			return err
 		}
+		d.mu.Lock()
 		d.st.Active = name
+		d.mu.Unlock()
 	}
-	i := d.st.Find(name)
+	d.kernelMu.Lock()
+	groups := core.Groups()
 	changed := 0
-	for _, g := range core.Groups() {
+	for _, g := range groups {
 		if !containsNode(g.Nodes, node) {
 			continue
 		}
@@ -328,18 +373,27 @@ func (d *Daemon) selectNode(name, node string) error {
 			continue
 		}
 		changed++
-		if i >= 0 {
+	}
+	d.kernelMu.Unlock()
+	if changed == 0 {
+		return fmt.Errorf("node %s not found in profile %s", node, name)
+	}
+	d.mu.Lock()
+	if i := d.st.Find(name); i >= 0 {
+		for _, g := range groups {
+			if !containsNode(g.Nodes, node) {
+				continue
+			}
 			if d.st.Profiles[i].Selected == nil {
 				d.st.Profiles[i].Selected = map[string]string{}
 			}
 			d.st.Profiles[i].Selected[g.Name] = node
 		}
 	}
-	if changed == 0 {
-		return fmt.Errorf("node %s not found in profile %s", node, name)
-	}
+	err := d.saveState()
+	d.mu.Unlock()
 	logx.Info("selected %s in %s for %d groups", node, name, changed)
-	return d.saveState()
+	return err
 }
 
 // containsNode reports whether the node is one of the names.
@@ -388,7 +442,10 @@ func (d *Daemon) delay(group string) ipc.Response {
 	if group == "" {
 		return ipc.Response{OK: false, Error: "group is required"}
 	}
-	result, err := core.Delay(group, d.st.DelayURL, core.DelayTimeout)
+	d.mu.RLock()
+	url := d.st.DelayURL
+	d.mu.RUnlock()
+	result, err := core.Delay(group, url, core.DelayTimeout)
 	if err != nil {
 		return ipc.Response{OK: false, Error: err.Error()}
 	}
@@ -405,6 +462,9 @@ func (d *Daemon) delayNodes(targetsParam string) ipc.Response {
 	if len(targets) == 0 {
 		return ipc.Response{OK: false, Error: "targets is required"}
 	}
+	d.mu.RLock()
+	url := d.st.DelayURL
+	d.mu.RUnlock()
 	out := map[string]map[string]uint16{}
 	for _, target := range targets {
 		body, err := os.ReadFile(state.ProfilePath(d.configPath, target.Profile))
@@ -412,39 +472,57 @@ func (d *Daemon) delayNodes(targetsParam string) ipc.Response {
 			out[target.Profile] = map[string]uint16{}
 			continue
 		}
-		out[target.Profile] = core.DelayProfile(body, target.Nodes, d.st.DelayURL, core.DelayTimeout)
+		out[target.Profile] = core.DelayProfile(body, target.Nodes, url, core.DelayTimeout)
 	}
 	return okResponse(out)
 }
 
 func (d *Daemon) start() error {
-	if d.st.Active == "" {
+	d.mu.RLock()
+	active := d.st.Active
+	port := d.st.Port
+	running := d.running
+	d.mu.RUnlock()
+	if active == "" {
 		return fmt.Errorf("no active profile")
 	}
-	if !d.running {
-		if !portFree(d.st.Port) {
-			return fmt.Errorf("port %d is already in use", d.st.Port)
+	d.kernelMu.Lock()
+	defer d.kernelMu.Unlock()
+	if !running {
+		if !portFree(port) {
+			return fmt.Errorf("port %d is already in use", port)
 		}
-		if err := d.applyProfile(d.st.Active, nil); err != nil {
+		if err := d.applyProfileLocked(active, nil); err != nil {
 			return err
 		}
 	}
-	core.Start(d.st.Port)
+	core.Start(port)
 	d.warnTun(true)
+	d.mu.Lock()
 	d.running = true
 	d.st.Enabled = true
-	logx.Info("kernel listening on %d", d.st.Port)
-	return d.saveState()
+	err := d.saveState()
+	d.mu.Unlock()
+	logx.Info("kernel listening on %d", port)
+	return err
 }
 
 func (d *Daemon) stop() error {
+	d.kernelMu.Lock()
 	core.Stop()
+	d.kernelMu.Unlock()
+	d.mu.Lock()
 	d.running = false
 	d.st.Enabled = false
+	err := d.saveState()
+	d.mu.Unlock()
 	logx.Info("kernel stopped")
-	return d.saveState()
+	return err
 }
 
+// applyProfile loads one profile body into the kernel. Downloads run
+// outside the locks and only the kernel work is serialised, so slow
+// networks never block the readers.
 func (d *Daemon) applyProfile(name string, report func(string)) error {
 	data, err := os.ReadFile(state.ProfilePath(d.configPath, name))
 	if err != nil {
@@ -453,24 +531,41 @@ func (d *Daemon) applyProfile(name string, report func(string)) error {
 	if err := geo.Ensure(d.ctx, d.geoDir, data, report); err != nil {
 		return err
 	}
+	d.kernelMu.Lock()
+	defer d.kernelMu.Unlock()
+	return d.applyProfileLocked(name, data)
+}
+
+// applyProfileLocked swaps the kernel configuration while kernelMu is
+// held. The state is read and written under the state lock.
+func (d *Daemon) applyProfileLocked(name string, data []byte) error {
+	d.mu.RLock()
 	port := 0
 	if d.st.Enabled {
 		port = d.st.Port
 	}
-	if port > 0 && !d.running && !portFree(port) {
+	enabled := d.st.Enabled
+	running := d.running
+	selected := map[string]string{}
+	if i := d.st.Find(name); i >= 0 {
+		for group, node := range d.st.Profiles[i].Selected {
+			selected[group] = node
+		}
+	}
+	d.mu.RUnlock()
+	if port > 0 && !running && !portFree(port) {
 		return fmt.Errorf("port %d is already in use", port)
 	}
 	if err := core.Apply(data, port); err != nil {
 		return err
 	}
 	d.warnTun(port > 0)
-	d.running = d.st.Enabled && port > 0
-	i := d.st.Find(name)
-	if i >= 0 {
-		for group, node := range d.st.Profiles[i].Selected {
-			if err := core.Select(group, node); err != nil {
-				logx.Warn("restore %s/%s failed: %v", group, node, err)
-			}
+	d.mu.Lock()
+	d.running = enabled && port > 0
+	d.mu.Unlock()
+	for group, node := range selected {
+		if err := core.Select(group, node); err != nil {
+			logx.Warn("restore %s/%s failed: %v", group, node, err)
 		}
 	}
 	return nil
@@ -574,16 +669,18 @@ func (d *Daemon) watchReload() {
 		case <-d.ctx.Done():
 			return
 		case <-ticker.C:
-			d.mu.Lock()
-			d.reloadLocked()
-			d.mu.Unlock()
+			d.reload()
 		}
 	}
 }
 
-// reloadLocked reloads outside edits so the kernel and the state follow
-// whatever the user saved on disk.
-func (d *Daemon) reloadLocked() {
+// reload refreshes outside edits so the kernel and the state follow
+// whatever the user saved on disk. The kernel work runs outside the state
+// lock so the readers stay free.
+func (d *Daemon) reload() {
+	d.mu.Lock()
+	needKernel := false
+	name := ""
 	if t := fileMTime(d.configPath); !t.Equal(d.stMTime) {
 		st, err := state.Load(d.configPath)
 		if err != nil {
@@ -592,9 +689,8 @@ func (d *Daemon) reloadLocked() {
 			d.st = st
 			d.stMTime = t
 			logx.Info("state reloaded from %s", d.configPath)
-			if err := d.syncKernel(); err != nil {
-				logx.Warn("sync kernel failed: %v", err)
-			}
+			needKernel = true
+			name = d.st.Active
 		}
 	}
 	for _, p := range d.st.Profiles {
@@ -605,24 +701,34 @@ func (d *Daemon) reloadLocked() {
 		}
 		d.profileMTime[p.Name] = t
 		if p.Name == d.st.Active {
-			if err := d.applyProfile(p.Name, nil); err != nil {
-				logx.Warn("reload profile %s failed: %v", p.Name, err)
-			} else {
-				logx.Info("profile %s reloaded", p.Name)
-			}
+			needKernel = true
+			name = p.Name
 		}
 	}
+	d.mu.Unlock()
+	if !needKernel {
+		return
+	}
+	d.syncKernel(name)
 }
 
-// syncKernel re-applies the active profile so the kernel matches the
-// state file after an outside edit.
-func (d *Daemon) syncKernel() error {
-	if d.st.Active == "" {
+// syncKernel re-applies the named profile so the kernel matches the state
+// file after an outside edit.
+func (d *Daemon) syncKernel(name string) {
+	if name == "" {
+		d.kernelMu.Lock()
 		core.Stop()
+		d.kernelMu.Unlock()
+		d.mu.Lock()
 		d.running = false
-		return nil
+		d.mu.Unlock()
+		return
 	}
-	return d.applyProfile(d.st.Active, nil)
+	if err := d.applyProfile(name, nil); err != nil {
+		logx.Warn("reload profile %s failed: %v", name, err)
+	} else {
+		logx.Info("profile %s reloaded", name)
+	}
 }
 
 // download fetches a subscription body and reports transfer shares. The

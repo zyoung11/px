@@ -31,10 +31,11 @@ func SetVersion(value string) {
 
 // Home is the first page: one status panel over two traffic charts.
 type Home struct {
-	app     *App
-	status  ipc.Status
-	nodes   ipc.NodesInfo
-	traffic traffic.Snapshot
+	app        *App
+	status     ipc.Status
+	nodes      ipc.NodesInfo
+	traffic    traffic.Snapshot
+	refreshing bool
 }
 
 // NewHome creates the Home page.
@@ -42,10 +43,39 @@ func NewHome(app *App, status ipc.Status) *Home {
 	return &Home{app: app, status: status}
 }
 
-// Init refreshes the status and the traffic history from the daemon.
+// Init reloads the page data in the background.
 func (h *Home) Init() {
-	h.Refresh()
-	h.measureDelay()
+	h.refreshAsync()
+}
+
+// refreshAsync reloads the status and the traffic history without
+// blocking the event loop and redraws when the answers arrive.
+func (h *Home) refreshAsync() {
+	if h.refreshing {
+		return
+	}
+	h.refreshing = true
+	go func() {
+		status, err := fetchStatus()
+		snap, _ := fetchTraffic()
+		var nodes ipc.NodesInfo
+		if err == nil && status.Active != "" {
+			nodes, _ = fetchNodes(status.Active)
+		}
+		h.app.events <- event{done: func(error) {
+			h.refreshing = false
+			if err != nil {
+				h.app.setMessage(err.Error())
+				h.app.redrawCurrent(h)
+				return
+			}
+			h.status = status
+			h.traffic = snap
+			h.nodes = nodes
+			h.measureDelay()
+			h.app.redrawCurrent(h)
+		}}
+	}()
 }
 
 // measureDelay tests the latency of the selected node in the background
@@ -62,7 +92,7 @@ func (h *Home) measureDelay() {
 		h.app.events <- event{err: err, done: func(error) {
 			if err == nil {
 				h.app.mergeDelays(result)
-				h.View()
+				h.app.redrawCurrent(h)
 			}
 		}}
 	}()
@@ -87,8 +117,7 @@ func (h *Home) HandleKey(key rune) {
 		if err != nil {
 			h.app.setMessage(err.Error())
 		}
-		h.Refresh()
-		h.View()
+		h.refreshAsync()
 	})
 	h.View()
 }
@@ -113,28 +142,6 @@ func (h *Home) drawFooterOnly() {
 	line := truncateStyled(h.footerLine(), w)
 	x := max((w-visibleWidth(line))/2, 1)
 	print("\x1b[" + itoa(hgt) + ";1H\x1b[K\x1b[" + itoa(hgt) + ";" + itoa(x) + "H\x1b[90m" + line + "\x1b[0m")
-}
-
-// Refresh reloads status, traffic and the selected node from the daemon.
-func (h *Home) Refresh() {
-	status, err := fetchStatus()
-	if err != nil {
-		h.app.setMessage(err.Error())
-		return
-	}
-	h.status = status
-	snap, err := fetchTraffic()
-	if err == nil {
-		h.traffic = snap
-	}
-	if status.Active != "" {
-		info, err := fetchNodes(status.Active)
-		if err == nil {
-			h.nodes = info
-		}
-	} else {
-		h.nodes = ipc.NodesInfo{}
-	}
 }
 
 // View draws the Home page: one status panel over the upload and the

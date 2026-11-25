@@ -236,12 +236,7 @@ func (b *Browser) planColumns(w, listHeight int) []columnGeometry {
 	}
 	profileCol := columnGeometry{cursor: -1}
 	for i, p := range b.profiles {
-		selected := false
-		if p.Name == b.active {
-			if info, ok := b.nodes[p.Name]; ok && info.Selected != "" {
-				selected = true
-			}
-		}
+		selected := p.Name == b.active
 		cursor := i == b.cursorDir && !b.inside
 		mark := "▸ "
 		if selected {

@@ -12,7 +12,7 @@ import (
 	"px/internal/tui"
 )
 
-const version = "0.1.6"
+const version = "0.1.7"
 
 const (
 	colorMauve  = "\x1b[38;2;198;160;246m"
